@@ -34,7 +34,7 @@ done
 | 红蓝卡 | AgeOptions / SMP | 如何读懂 MSN | https://www.ageoptions.org/wp-content/uploads/2022/10/SMPHowToReadMSN.pdf |
 | 社安局 | 费城社区法律服务 | SSA 多付追讨应对手册 | https://clsphila.org/wp-content/uploads/2019/11/SSA-Overpayment-Kit.pdf |
 
-## 还没核对、建议你补齐的
+## 还没核对、建议补齐的
 
 | 类别 | 建议来源 |
 |---|---|

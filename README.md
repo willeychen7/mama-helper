@@ -175,8 +175,15 @@ Three files, deliberately. Don't add a fourth.
 | [`docs/journal.md`](docs/journal.md) | **日记** — changes ✅, bugs 🐛, decisions ⚖️. Append-only |
 
 Every number in the docs is regenerated from the source and the test suite by
-`scripts/update-docs.mjs`; a pre-commit hook blocks a core-code change that doesn't
-touch the journal, and blocks real letters from ever entering git.
+`scripts/update-docs.mjs` — none of them are typed by hand.
+
+A pre-commit hook blocks a core-code change that doesn't touch the journal, and blocks
+real letters from ever entering git. It lives in `scripts/hooks/` so it travels with the
+repo, but git won't use it until you point at it once per clone:
+
+```bash
+git config core.hooksPath scripts/hooks
+```
 
 ## Tech
 

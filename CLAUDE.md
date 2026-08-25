@@ -57,8 +57,15 @@ node scripts/update-docs.mjs
 | 做了一个三个月后会问「当初为什么」的选择 | ⚖️ 记 | 必须写「什么情况下该推翻」。**不写失效条件的决定就是教条** |
 | 纯重构 / 改名 / 格式化 | 不记 | |
 
-装了 pre-commit 钩子：改了抽取器或脱敏器却没动 journal，提交会被拦下来。
-确实不需要记的时候用 `git commit --no-verify` 跳过。
+**新克隆仓库之后先跑一次**（只需一次）：
+
+```bash
+git config core.hooksPath scripts/hooks
+```
+
+之后 pre-commit 钩子生效：改了抽取器或脱敏器却没动 journal，提交会被拦下来；
+真实信件（`demo_image/real/`、`private_*.json`）也一律拦住。
+确实不需要记的那次用 `git commit --no-verify` 跳过。
 
 ---
 
@@ -69,6 +76,7 @@ CLAUDE.md                      ← 你在这
 docs/how-it-works.md           读信管线 · 隐私处理 · 准确率验证（白板，随时改写）
 docs/journal.md                变更 · bug · 决定（日记，只加不改）
 scripts/update-docs.mjs        从代码和测试重新生成文档里的数字
+scripts/hooks/pre-commit       提交前检查（需先设 core.hooksPath，见上）
 
 frontend/src/utils/
   imagePrep.js                 图像预处理（四角检测/透视矫正/去斜/去阴影）

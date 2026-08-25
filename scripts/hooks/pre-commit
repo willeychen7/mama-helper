@@ -1,0 +1,45 @@
+#!/bin/sh
+# Mama Helper · 提交前检查
+#
+# 目的：防止「改了代码但没记日记」。文档过期比没有文档更危险。
+#
+# 这个文件在版本控制里，但 git 不会自动用它。
+# 每次新克隆仓库之后跑一次（只需一次，配置存在本地 .git/config）：
+#
+#     git config core.hooksPath scripts/hooks
+#
+# 确实不需要记日记的那次提交：git commit --no-verify
+
+staged=$(git diff --cached --name-only)
+
+core=$(echo "$staged" | grep -E '^frontend/src/(App\.jsx|utils/(fieldExtractor|contentRedactor|imagePrep)\.js)$')
+journal=$(echo "$staged" | grep -E '^docs/journal\.md$')
+
+if [ -n "$core" ] && [ -z "$journal" ]; then
+  echo ""
+  echo "🛑 改了核心代码，但 docs/journal.md 没有跟着改："
+  echo "$core" | sed 's/^/     /'
+  echo ""
+  echo "   往 docs/journal.md 最上面加一条："
+  echo "     🐛 修了 bug —— 写清楚是被哪张图炸出来的"
+  echo "     ✅ 改了行为 —— 记行为变化，不记重构"
+  echo "     ⚖️ 做了决定 —— 必须写「什么情况下该推翻」"
+  echo ""
+  echo "   顺便别忘了跑：node scripts/update-docs.mjs"
+  echo ""
+  echo "   纯重构不需要记的话：git commit --no-verify"
+  echo ""
+  exit 1
+fi
+
+# 真实信件不许进 git（PII）
+leak=$(echo "$staged" | grep -E '^demo_image/real/|_real_ocr\.json$|/private_.*\.json$')
+if [ -n "$leak" ]; then
+  echo ""
+  echo "🛑 这些像是真实信件，含真人 PII，不能提交："
+  echo "$leak" | sed 's/^/     /'
+  echo ""
+  exit 1
+fi
+
+exit 0
