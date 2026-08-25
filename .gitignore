@@ -18,3 +18,13 @@ node_modules/
 # Local files
 *.log
 *.Rhistory
+
+# 真实信件及其 OCR 结果绝不入库
+# demo_ocr_pp.json 里的六封是公开样本账单（姓名金额都是编的），可以提交
+# 但只要放进一封真实的信，它的 OCR 文本就含有真实 PII
+demo_image/real/
+frontend/src/utils/*_real_ocr.json
+frontend/src/utils/private_*.json
+
+# 待手动删除（工具没有删除权限，移到这里）
+_to_delete/
