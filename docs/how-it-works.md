@@ -326,6 +326,7 @@ HEIC 自动转 JPEG。原图只存在于当前请求的内存里，处理完立�
 | 官方原文 | `fieldExtractor.real.test.mjs` | 真实措辞 6 通过 / 0 失败 |
 | 类别拆分 | `fieldExtractor.split.test.mjs` | 9 通过 / 0 失败 |
 | 语句一致性 | `fieldExtractor.consistency.test.mjs` | 矛盾 0 处 |
+| 脱敏断言 | `contentRedactor.hoag.test.mjs` | 15 通过 / 0 失败 |
 
 ### 词典规模
 
@@ -351,7 +352,7 @@ HEIC 自动转 JPEG。原图只存在于当前请求的内存里，处理完立�
 | 合成信件 | `fieldExtractor.test.mjs` | 17 类信件的分类、机构、紧急度、诈骗识别 |
 | 官方原文 | `fieldExtractor.real.test.mjs` | CMS / DHCS / 联邦法院 PDF 里**逐字抄来**的措辞 |
 | 类别拆分 | `fieldExtractor.split.test.mjs` | 电/气/水分得开、车险房险寿险分得开 |
-| 脱敏断言 | `contentRedactor.hoag.test.mjs` | 老人姓名必挡、医院电话应放行 |
+| 脱敏断言 | `contentRedactor.hoag.test.mjs` | 15 条断言：老人姓名/地址/账号必挡，机构抬头/缴费信箱/医院电话/金额必须放行 |
 | 语句一致性 | `fieldExtractor.consistency.test.mjs` | 大意句不得声称它没验证过的事 |
 | **真实账单** | `accuracy.test.mjs` | **唯一有意义的那一层** —— 真图、真 OCR、人工真值 |
 
@@ -438,8 +439,13 @@ v1 有两次「修好了一个、悄悄弄坏了另一个」，全靠回归拦�
 
 ## 手机实拍路径
 
+> ⚠️ **这一层的 fixture 还没入库。** `phone.test.mjs` 要读 `phone_ocr.json`，
+> 而这个文件是在临时环境里生成的，没有落到仓库里 —— 现在直接跑会 `ENOENT`。
+> 要用得先自己生成一遍：
+
 ```bash
-python3 make_phone_fixtures.py demo/water_bill.png phone/water_bill_phone.jpg
+python3 make_phone_fixtures.py demo_image/water_bill.avif phone/water_bill_phone.jpg
+python3 pipeline_ppocr_lines.py          # 产出 phone_ocr.json
 node phone.test.mjs
 ```
 

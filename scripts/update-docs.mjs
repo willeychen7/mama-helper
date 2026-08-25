@@ -60,6 +60,7 @@ const suites = [
   ['官方原文', 'fieldExtractor.real.test.mjs'],
   ['类别拆分', 'fieldExtractor.split.test.mjs'],
   ['语句一致性', 'fieldExtractor.consistency.test.mjs'],
+  ['脱敏断言', 'contentRedactor.hoag.test.mjs'],
 ];
 const suiteRows = suites.map(([name, file]) => {
   const out = run(file);
