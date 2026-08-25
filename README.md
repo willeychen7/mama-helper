@@ -1,466 +1,202 @@
 # Mama Helper 👵📬
 
-**Mama Helper（安心小帮手）** is a privacy-first document understanding assistant designed to help Chinese-speaking families in the United States understand English letters, bills, notices, and other important documents.
-
 > **看不懂美国的信？拍一下就知道。**
 
-Many important U.S. documents can be difficult to understand for people who are not comfortable reading English.
+Mama Helper reads U.S. mail — utility bills, insurance notices, Medicare and Medi-Cal
+letters, court summons — and explains it in plain Chinese for elderly family members
+who don't read English.
 
-Mama Helper turns complicated documents into clear, practical Chinese explanations while keeping privacy at the center of the design.
+It answers the five things an older person actually needs to know:
 
-The goal is not simply to translate a letter.
+> **这是什么信 · 谁寄的 · 大意 · 要交多少 · 什么时候之前**
 
-It is to help answer:
+**The letter never leaves the device.** Photo, OCR, extraction, validation and the
+Chinese explanation all run in the browser — zero network requests.
 
-> **这是什么？重要吗？我要做什么？什么时候做？不处理会怎样？**
+> **Verify it yourself in five seconds:** turn on airplane mode and photograph a letter.
+> It still works.
+> **验证方法：把手机调成飞行模式，拍一张信。功能照常。**
 
----
-
-## 🌱 Vision
-
-Mama Helper is built around a **local-first and privacy-conscious approach**.
-
-Important documents can contain names, addresses, account numbers, medical information, financial information, and other sensitive data.
-
-Instead of automatically sending an entire document to an external AI service, Mama Helper is designed to process as much information as possible **locally on the user's device**.
-
-The long-term vision is to help users move from understanding a document to knowing what to do next:
-
-```text
-📬 Understand
-      ↓
-🧠 Explain
-      ↓
-👉 Know what to do
-      ↓
-📅 Remember when to do it
-```
-
-Future AI-assisted capabilities may include natural-language explanations, follow-up questions, suggested next steps, official resource links, and reminders.
+That is the whole point. A privacy claim you can falsify is worth more than one you
+have to trust — and the person deciding whether to install this is usually the adult
+child, not the elder.
 
 ---
 
-## 🔐 Privacy-First Architecture
-
-Privacy is a technical design principle in Mama Helper, not only a policy statement.
-
-The core document-reading pipeline is designed to run locally:
-
-```text
-📷 Document Image
-       │
-       ▼
-┌──────────────────────┐
-│ Local Image          │
-│ Processing           │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│ Local OCR            │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│ Structured Field     │
-│ Extraction           │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│ Local Validation     │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│ Local PII Detection  │
-└──────────┬───────────┘
-           │
-           ▼
-🇨🇳 Chinese Explanation
-```
-
-Local processing includes:
-
-* Image preprocessing
-* Browser-based OCR
-* Structured field extraction
-* Document classification
-* Amount and date extraction
-* Payment-status detection
-* Deterministic validation
-* Local PII detection
-* Chinese explanation generation
-
-The core reading experience does not require an external AI model.
-
-For future AI-assisted features, Mama Helper is designed to apply **redaction and data minimization before external processing**, so that an AI model does not automatically receive the original document.
-
-> **Use AI where it adds value. Keep sensitive processing local whenever possible.**
-
----
-
-## 🧠 A Different Approach to AI
-
-A typical document-AI workflow might look like:
-
-```text
-Document
-   ↓
-Cloud AI
-   ↓
-Answer
-```
-
-Mama Helper separates document processing from AI assistance:
-
-```text
-                    Document
-                       │
-                       ▼
-              Local Processing
-                       │
-          ┌────────────┼────────────┐
-          ▼            ▼            ▼
-         OCR      PII Detection   Validation
-          │            │            │
-          └────────────┼────────────┘
-                       ▼
-                Verified Facts
-                       │
-                       ▼
-              Optional AI Layer
-                       │
-          ┌────────────┼────────────┐
-          ▼            ▼            ▼
-      Explain       Guide        Follow-up
-```
-
-The principle is:
-
-### Let deterministic systems handle facts.
-
-For example:
-
-* Amounts
-* Dates
-* Payment status
-* Structured fields
-* Document categories
-
-### Let AI handle language and context.
-
-For example:
-
-* Explaining complicated wording
-* Answering follow-up questions
-* Summarizing context
-* Suggesting possible next steps
-
-This reduces the need to make an AI model the sole source of truth for critical document information.
-
----
-
-## 📚 文档
-
-全项目只有三份文档，不要再新建。
+## What v1 does today
 
 | | |
 |---|---|
-| [`CLAUDE.md`](CLAUDE.md) | **工作守则** —— 五条铁律、改完代码必做的三件事、下一步该做什么 |
-| [`docs/how-it-works.md`](docs/how-it-works.md) | **说明书** —— 读信管线 · 隐私处理 · 准确率验证（白板，随时改写） |
-| [`docs/journal.md`](docs/journal.md) | **日记** —— 变更 · bug · 决定（只加不改，新的写最上面） |
+| **Classify** | 26 letter categories (electric / gas / water / auto / home / life insurance / Medi-Cal / Medicare / SSA / court …) — utilities and insurance are kept **separate**, never lumped together |
+| **Identify sender** | 47 known organizations, abbreviated where an abbreviation exists (SCE, AT&T, HOA) |
+| **Extract the amount** | and distinguish **three states**: 要交 / 自动扣款 / 不用交 (including credit balances) |
+| **Extract the due date** | and correctly say *"this letter has no deadline"* rather than inventing one |
+| **Flag urgency** | 红 · 橙 · 黄 · 绿, with `‼️` for the most urgent. The wording is generated from the actual reason, not picked from a canned list per level |
+| **Recognize subtypes** | 15 of them — MSN, ANOC, Medi-Cal annual renewal, HOA lien notice, jury summons … |
+| **Screen for scams** | 9 signal patterns |
+| **Compute redaction** | which lines could safely be sent to an external model — **computed only, nothing is sent** |
 
-文档里的数字（准确率、词典规模）由脚本生成，不手写：
+### Accuracy — measured, not estimated
 
-```bash
-node scripts/update-docs.mjs          # 更新
-node scripts/update-docs.mjs --check  # CI 检查是否过期
-```
+| Suite | Result |
+|---|---|
+| **Real bills, hand-labeled ground truth** | 6 letters × 4 fields — **24/24** |
+| Synthetic letters | 17 / 17 |
+| Verbatim wording from official CMS / DHCS / federal court PDFs | 6 / 6 |
+| Category splitting (electric vs gas vs water, auto vs home vs life) | 9 / 9 |
+| Self-consistency (the summary may not assert what it didn't verify) | 0 contradictions |
+| Redaction assertions | 15 / 15 |
 
-装了 pre-commit 钩子：改了核心代码却没动 `docs/journal.md`，提交会被拦下。
+Measured OCR confidence: **97.8%** on numeric tokens, **99.3%** on dates.
+**OCR is not the bottleneck** — 14 of v1's 27 bugs were in the extraction layer, which
+is far more dangerous because it produces *confidently wrong answers* rather than
+"I can't read this."
 
-## ✨ Features
+### What it does NOT do yet
 
-* 📷 **Take a photo or upload a document**
-* 🖼️ **Process real-world phone photos**
-* 🔍 **Local browser-based OCR**
-* 🧩 **Structured document understanding**
-* 🇨🇳 **Simplified Chinese explanations**
-* 🔴 **Identify whether action is required**
-* 💰 **Extract important amounts**
-* 📅 **Identify due dates**
-* ⚠️ **Highlight potential risks**
-* ✅ **Validate critical extracted information**
-* 🔒 **Detect and redact potentially sensitive information locally**
-* 💬 **Ask follow-up questions about the document**
-* 🤖 **Support future AI-assisted explanations and guidance**
+Listed honestly, because a README that promises features is the same failure mode as
+a letter reader that guesses at amounts.
+
+- ❌ **No follow-up questions.** There is no chat.
+- ❌ **No AI advice.** The redaction layer is built and tested, but nothing is sent anywhere.
+- ❌ **No multi-page handling.** Photograph the page without the amount on it and it will
+  say "not found" instead of "this letter has more pages."
+- ❌ **No Chinese-language letters.** OCR is pinned to `lang: 'en'`.
+- ❌ **Name detection is regex-only.** `BAKER, NATE` is caught by its shape; `Nate Baker` is missed.
+  This is the single weakest part of the system — see [`docs/how-it-works.md`](docs/how-it-works.md).
 
 ---
 
-## 🧩 How It Works
+## Why it's built this way
 
-The document-reading pipeline is designed to separate local document processing from optional AI assistance.
+The design splits the problem in two, and the split is the whole architecture:
 
 ```text
-Take Photo / Upload Image
-          ↓
-   Local Image Processing
-          ↓
-      Local OCR
-          ↓
-  Structured Extraction
-          ↓
-   Local Validation
-          ↓
-   Local PII Detection
-          ↓
-  Chinese Explanation
-          ↓
- Optional AI Assistance
+                     Letter photo
+                          │
+                 ┌────────┴────────┐
+                 │  Local, always  │
+                 └────────┬────────┘
+                          │
+        image prep → OCR → spatial extraction → 14 cross-checks
+                          │
+                          ▼
+                   Verified facts                    Language & context
+          amount · date · sender · category    ←──   explaining unusual wording,
+          deterministic, arithmetic-checkable        suggesting next steps
+                          │                          (a later version, opt-in,
+                          ▼                           on redacted text only)
+                Chinese explanation
+                 template-composed
+                 cannot hallucinate
 ```
 
-The application can identify and structure information such as:
+**Deterministic systems own the facts. Language models never touch a number.**
 
-* Document type
-* Sender
-* Whether action is required
-* Importance
-* Amount
-* Payment status
-* Due date
-* Summary
-* Recommended action
-* Risk level
-* Risk explanation
-* Confidence
+An amount can be proven: `33.94 + 35.74 + 25.22 + 4.27 + 0.19 = 99.36`. A model that
+outputs a number offers no second path to check it — and reading digits is a model's
+weakest skill sitting in this system's highest-risk position. So amounts and dates come
+from local extraction or they don't come at all.
 
----
+The payoff shows up in cases like these, all of which v1 gets wrong-then-right:
 
-## 🛡️ Local PII Detection
+| Printed on the letter | Actually means | The wrong reading costs |
+|---|---|---|
+| `RECURRING PAYMENT - DO NOT PAY` | already on autopay | paying a real bill twice |
+| `AMOUNT DUE: None` next to `Total Premium $165.00` | nothing owed | paying $165 for nothing |
+| `Balance $6.33CR` | the company owes *you* | confusion, or paying a credit |
+| `Pay by Phone: 855-…` | a payment method | a fabricated due date |
 
-Sensitive information is detected locally before future external AI processing.
-
-The system currently considers categories such as:
-
-* Names
-* Addresses
-* Account numbers
-* Social Security numbers
-* Medicare identifiers
-* Payment information
-* Email addresses
-* Other identifier-like strings
-
-Mama Helper follows a **data-minimization approach**:
-
-```text
-Original Document
-       │
-       ▼
-Local Processing
-       │
-       ├── Extract what is needed
-       ├── Detect sensitive information
-       └── Minimize what may leave the device
-                    │
-                    ▼
-             Optional AI
-```
-
-The goal is not to claim perfect privacy.
-
-The goal is to make the privacy boundary **smaller, explicit, and testable**.
+**When the cross-checks fail, it says 看不准 rather than guessing.** For this user, a
+wrong number is worse than an admitted blank.
 
 ---
 
-## 🛠️ Tech Stack
+## Run locally
 
-### Frontend
-
-* React
-* Vite
-* JavaScript / JSX
-* CSS
-* Lucide React
-
-### Local Document Processing
-
-* PaddleOCR
-* WebGPU
-* WASM
-* Browser-based image preprocessing
-* Local PII detection and redaction
-
-### Backend
-
-* Python
-* FastAPI
-* Uvicorn
-
-### AI
-
-Mama Helper is designed to support API-based AI models for future document understanding and assistance.
-
-API credentials are provided through environment variables and are **not stored in the repository**.
-
----
-
-## 🚀 Run Locally
-
-### 1. Clone the repository
+Reading letters needs **only the frontend**. There is no backend, no API key and no
+account in v1 — that is not a setup shortcut, it's the product.
 
 ```bash
 git clone https://github.com/willeychen7/mama-helper.git
-cd mama-helper
-```
-
-### 2. Backend Setup
-
-Go into the backend directory:
-
-```bash
-cd backend
-```
-
-Create a Python virtual environment:
-
-```bash
-python3 -m venv venv
-```
-
-Activate it on macOS/Linux:
-
-```bash
-source venv/bin/activate
-```
-
-Install the required dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-Start the FastAPI server:
-
-```bash
-uvicorn main:app --reload
-```
-
-The backend will normally be available at:
-
-```text
-http://127.0.0.1:8000
-```
-
-### 3. Configure API Keys
-
-Create a local `.env` file inside the `backend` directory when using an AI-enabled backend implementation.
-
-For example:
-
-```text
-GROQ_API_KEY=your_api_key_here
-```
-
-or, if using the Gemini implementation:
-
-```text
-GEMINI_API_KEY=your_api_key_here
-```
-
-**Never commit your `.env` file or real API keys to GitHub.**
-
-### 4. Frontend Setup
-
-Open another Terminal window and go to the frontend:
-
-```bash
 cd mama-helper/frontend
-```
-
-Install dependencies:
-
-```bash
 npm install
+npm run dev          # → http://localhost:5173
 ```
 
-Start the development server:
+The OCR model downloads once on first run and is cached; after that the page works
+offline.
+
+<details>
+<summary><code>backend/</code> — FastAPI scaffold for the future AI layer, unused by v1</summary>
+
+It exists for the opt-in advice feature described above. **Nothing in the letter-reading
+path calls it**, and it has no `requirements.txt` yet — install its imports by hand:
 
 ```bash
-npm run dev
+cd backend && python3 -m venv venv && source venv/bin/activate
+pip install fastapi uvicorn pydantic groq pillow
+cp ../.env.example .env        # then fill in a key
+uvicorn main:app --reload      # → http://127.0.0.1:8000
 ```
 
-Vite will provide a local URL, usually similar to:
+Keep keys in `backend/.env`. Never commit them.
+</details>
 
-```text
-http://localhost:5173
+## Verify the claims yourself
+
+```bash
+# 1 · The privacy claim: airplane mode, then photograph a letter. It still works.
+
+# 2 · The accuracy claims:
+cd frontend/src/utils
+for t in *.test.mjs; do echo "── $t"; node "$t" | tail -3; done
+
+# 3 · The numbers in the docs are generated from source, never hand-typed:
+node scripts/update-docs.mjs --check
 ```
 
-Open that URL in your browser.
+## Documentation
 
----
+Three files, deliberately. Don't add a fourth.
 
-## 🔒 Security & Privacy
+| | |
+|---|---|
+| [`CLAUDE.md`](CLAUDE.md) | **工作守则** — five hard rules, what to do after every code change, what's next |
+| [`docs/how-it-works.md`](docs/how-it-works.md) | **说明书** — the seven-stage pipeline, the privacy gates, how accuracy is verified |
+| [`docs/journal.md`](docs/journal.md) | **日记** — changes ✅, bugs 🐛, decisions ⚖️. Append-only |
 
-Mama Helper follows a **local-first and data-minimization approach**.
+Every number in the docs is regenerated from the source and the test suite by
+`scripts/update-docs.mjs`; a pre-commit hook blocks a core-code change that doesn't
+touch the journal, and blocks real letters from ever entering git.
 
-Local processing does not mean perfect privacy or perfect PII detection.
+## Tech
 
-Known limitations include:
+React 19 · Vite · `@paddleocr/paddleocr-js` (PP-OCRv6 preferred, v5 fallback; WebGPU
+preferred, WASM fallback). Image preprocessing — page-corner detection, perspective
+correction, deskew, shadow removal — is hand-written over Canvas and typed arrays, so
+it adds **zero** download weight. FastAPI backend, unused by v1.
 
-* PII detection cannot guarantee that every personal identifier will be detected.
-* Browser and operating-system security are outside the application's control.
-* Users can still manually copy, screenshot, or share documents.
-* Future external AI integrations will introduce additional privacy considerations.
-* External AI providers may have their own processing and retention policies.
+## Honest scope
 
-Mama Helper therefore avoids claiming absolute privacy guarantees.
+Local processing is not the same as perfect privacy, and this project doesn't claim it.
 
-The goal is to **minimize unnecessary exposure of sensitive information and make the privacy boundary visible and testable**.
+**Protects against:** us seeing your mail · interception in transit · a breach on our
+side, because we hold nothing of yours.
 
-The repository intentionally excludes:
+**Does not protect against:** someone holding your unlocked phone · browser or OS-level
+compromise · you forwarding a screenshot yourself · category inference (knowing a letter
+is a Medi-Cal renewal implies something about income).
 
-```text
-.env
-.env.*
-backend/venv/
-frontend/node_modules/
-__pycache__/
-*.pyc
-.DS_Store
-```
-
-Do not place API keys directly inside frontend code or commit them to Git.
-
----
-
-## 🗺️ Roadmap
-
-Future development may include:
-
-* More robust OCR and document preprocessing
-* Support for additional document types
-* AI-assisted explanations and follow-up questions
-* Suggested next actions
-* Official resource links
-* Deadline and payment reminders
-* Privacy-focused document history
-* Family assistance workflows
-* Improved accessibility for older users
-
----
+PII detection cannot guarantee every identifier is caught. The goal is not a perfect
+privacy guarantee — it's a privacy boundary that is **small, explicit and testable**.
 
 ## ⚠️ Disclaimer
 
-Mama Helper provides software- or AI-generated explanations for informational purposes.
-
-It is **not a substitute for professional legal, financial, medical, tax, or other professional advice**.
-
-For high-stakes documents, users should verify important information with the relevant organization or a qualified professional.
-
----
+Mama Helper produces software-generated explanations for informational purposes only.
+It is **not** legal, financial, medical or tax advice. For anything consequential,
+verify with the organization that sent the letter or with a qualified professional.
 
 ## 📄 License
 
-License information will be added as the project develops.
+To be added.
