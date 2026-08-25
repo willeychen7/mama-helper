@@ -23,7 +23,15 @@ child, not the elder.
 
 ---
 
-## What v1 does today
+> **Status — v1 · 本地读信.** Reading, extraction and the Chinese explanation work
+> end-to-end with no network. There is no AI layer, no chat and no account yet.
+> What changed in each version, and why each design decision was made, lives in
+> [`docs/journal.md`](docs/journal.md) — this README always describes the current state,
+> never the history.
+
+---
+
+## What it does today
 
 | | |
 |---|---|
@@ -48,7 +56,7 @@ child, not the elder.
 | Redaction assertions | 15 / 15 |
 
 Measured OCR confidence: **97.8%** on numeric tokens, **99.3%** on dates.
-**OCR is not the bottleneck** — 14 of v1's 27 bugs were in the extraction layer, which
+**OCR is not the bottleneck** — 14 of the 27 bugs fixed so far were in the extraction layer, which
 is far more dangerous because it produces *confidently wrong answers* rather than
 "I can't read this."
 
@@ -98,7 +106,7 @@ outputs a number offers no second path to check it — and reading digits is a m
 weakest skill sitting in this system's highest-risk position. So amounts and dates come
 from local extraction or they don't come at all.
 
-The payoff shows up in cases like these, all of which v1 gets wrong-then-right:
+The payoff shows up in cases like these — every one of them was read wrong before it was read right:
 
 | Printed on the letter | Actually means | The wrong reading costs |
 |---|---|---|
@@ -115,7 +123,7 @@ wrong number is worse than an admitted blank.
 ## Run locally
 
 Reading letters needs **only the frontend**. There is no backend, no API key and no
-account in v1 — that is not a setup shortcut, it's the product.
+account — that is not a setup shortcut, it's the product.
 
 ```bash
 git clone https://github.com/willeychen7/mama-helper.git
@@ -128,7 +136,7 @@ The OCR model downloads once on first run and is cached; after that the page wor
 offline.
 
 <details>
-<summary><code>backend/</code> — FastAPI scaffold for the future AI layer, unused by v1</summary>
+<summary><code>backend/</code> — FastAPI scaffold for the future AI layer, not yet used</summary>
 
 It exists for the opt-in advice feature described above. **Nothing in the letter-reading
 path calls it**, and it has no `requirements.txt` yet — install its imports by hand:
@@ -175,7 +183,7 @@ touch the journal, and blocks real letters from ever entering git.
 React 19 · Vite · `@paddleocr/paddleocr-js` (PP-OCRv6 preferred, v5 fallback; WebGPU
 preferred, WASM fallback). Image preprocessing — page-corner detection, perspective
 correction, deskew, shadow removal — is hand-written over Canvas and typed arrays, so
-it adds **zero** download weight. FastAPI backend, unused by v1.
+it adds **zero** download weight. FastAPI backend, not yet used.
 
 ## Honest scope
 
