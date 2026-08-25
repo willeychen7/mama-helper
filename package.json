@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@paddleocr/paddleocr-js": "^0.4.2",
     "tesseract.js": "^7.0.0"
   }
 }

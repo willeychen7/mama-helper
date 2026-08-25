@@ -1,0 +1,65 @@
+{
+  "SCE_Bill_Letter": {
+    "note": "SCE 账单第 5 页（明细页），本身不含缴费联",
+    "category": "electric",
+    "sender": "SCE",
+    "amount_due": 99.36,
+    "due_date": null,
+    "line_items_sum": 99.36,
+    "today": "2024-02-10",
+    "amount_shown": 99.36,
+    "payment_action": "pay"
+  },
+  "SCE_Letter": {
+    "note": "SCE 写给加州公用事业委员会的监管公函，不是账单",
+    "category": "NOT_A_BILL",
+    "sender": "SCE",
+    "amount_due": null,
+    "due_date": null,
+    "today": "2024-04-25",
+    "amount_shown": null,
+    "payment_action": "none"
+  },
+  "hoag-invoice-mychart": {
+    "note": "医院账单缴费联，有 AMOUNT YOU OWE，无到期日；10/19/18 是账单日",
+    "category": "medical_provider",
+    "sender": "Hoag",
+    "amount_due": 333.33,
+    "due_date": null,
+    "statement_date": "2018-10-19",
+    "today": "2018-10-25",
+    "amount_shown": 333.33,
+    "payment_action": "pay"
+  },
+  "statefarm_bill": {
+    "note": "AMOUNT DUE: None + BILLED THROUGH SFPP。165 是年度保费。不该说「要交」",
+    "category": "home_insurance",
+    "sender": "State Farm",
+    "amount_due": 0,
+    "due_date": null,
+    "autopay": true,
+    "today": "2024-04-20",
+    "amount_shown": 165,
+    "payment_action": "autopay"
+  },
+  "water_bill": {
+    "note": "BY: 04/30/2024 是到期日；RECURRING PAYMENT - DO NOT PAY 表示已自动扣款，不该说「要交」",
+    "category": "water",
+    "sender": "Water District",
+    "amount_due": 71.2,
+    "due_date": "2024-04-30",
+    "autopay": true,
+    "today": "2024-04-05",
+    "amount_shown": 71.2,
+    "payment_action": "autopay"
+  },
+  "att_bill": {
+    "note": "AT&T 无线账单。Balance $6.33CR 是贷记余额（公司欠客户），并明写 Payment is Not Required",
+    "category": "telecom",
+    "sender": "AT&T",
+    "amount_shown": -6.33,
+    "payment_action": "none",
+    "due_date": null,
+    "today": "2019-02-05"
+  }
+}

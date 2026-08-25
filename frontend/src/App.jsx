@@ -19,31 +19,78 @@ import {
 import heic2any from 'heic2any';
 import { PaddleOCR } from '@paddleocr/paddleocr-js';
 
+import { enhanceDocumentImage } from './utils/imagePrep';
+
+import { extractLetterFields } from './utils/fieldExtractor';
+
+import { buildTranslatablePayload } from './utils/contentRedactor';
+
 import './App.css';
 
 
 // ============================================================
-// V4.1
-// Browser Local OCR + Local PII Detection
+// V5
+// Browser Local OCR + Local Critical-field Re-OCR + Local PII
+//
+// PIPELINE
 //
 // IMAGE
 //   ↓
-// Browser local image processing
+// Browser Local Image Processing
 //   ↓
-// PaddleOCR.js / PP-OCRv5
+// PaddleOCR PP-OCRv5
 //   ↓
-// Browser Worker / WASM
+// OCR text + bbox + confidence
+//   ↓
+// Detect critical / suspicious lines
+//   ↓
+// Crop original local image region
+//   ↓
+// Upscale local crop
+//   ↓
+// PaddleOCR second pass
+//   ↓
+// Validate / choose better result
+//   ↓
+// Spatial reading order
 //   ↓
 // Local PII Detection
 //   ↓
-// Redacted OCR Text
+// Redacted OCR
 //
 // IMPORTANT
 // - Original image is NOT sent to main.py
-// - OCR runs in browser
-// - PII detection runs in browser
-// - AI is NOT called in this version
+// - OCR is fully local
+// - Second OCR pass is also fully local
+// - PII detection is fully local
+// - No AI is called in this version
 // ============================================================
+
+
+// ============================================================
+// General Helpers
+// ============================================================
+
+const clamp = (value, min, max) =>
+  Math.min(
+    max,
+    Math.max(min, value)
+  );
+
+const normalizeTextForComparison = (text) =>
+  String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const digitCount = (text) =>
+  (String(text || '').match(/\d/g) || []).length;
+
+const alphaNumericCount = (text) =>
+  (
+    String(text || '').match(
+      /[A-Z0-9]/gi
+    ) || []
+  ).length;
 
 
 // ============================================================
@@ -58,8 +105,14 @@ const luhnCheck = (numStr) => {
   let sum = 0;
   let shouldDouble = false;
 
-  for (let i = numStr.length - 1; i >= 0; i -= 1) {
-    let digit = Number(numStr[i]);
+  for (
+    let i = numStr.length - 1;
+    i >= 0;
+    i -= 1
+  ) {
+    let digit = Number(
+      numStr[i]
+    );
 
     if (shouldDouble) {
       digit *= 2;
@@ -81,17 +134,23 @@ const luhnCheck = (numStr) => {
 // Credit Card
 // ============================================================
 
-const findCreditCardDetections = (text) => {
+const findCreditCardDetections = (
+  text
+) => {
   const detections = [];
 
-  // 13-19 digits, allowing spaces or hyphens
-  const regex = /\b(?:\d[ -]?){12,18}\d\b/g;
+  const regex =
+    /\b(?:\d[ -]?){12,18}\d\b/g;
 
   let match;
 
-  while ((match = regex.exec(text)) !== null) {
+  while (
+    (match = regex.exec(text)) !== null
+  ) {
     const raw = match[0];
-    const digitsOnly = raw.replace(/[^\d]/g, '');
+
+    const digitsOnly =
+      raw.replace(/[^\d]/g, '');
 
     if (
       digitsOnly.length >= 13 &&
@@ -102,8 +161,11 @@ const findCreditCardDetections = (text) => {
         type: 'CREDIT_CARD',
         value: raw,
         start: match.index,
-        end: match.index + raw.length,
-        placeholder: '[CREDIT_CARD]',
+        end:
+          match.index +
+          raw.length,
+        placeholder:
+          '[CREDIT_CARD]',
         priority: 96
       });
     }
@@ -126,7 +188,8 @@ const PII_PATTERNS = [
     type: 'SSN',
     mode: 'full',
     priority: 100,
-    regex: /\b\d{3}-\d{2}-\d{4}\b/g,
+    regex:
+      /\b\d{3}-\d{2}-\d{4}\b/g,
     placeholder: '[SSN]'
   },
 
@@ -136,79 +199,96 @@ const PII_PATTERNS = [
     priority: 95,
     regex:
       /(?:Routing\s*(?:Number|No\.?|#)?|ABA\s*(?:Number|#)?)[:\s]*(\d{9})\b/gi,
-    placeholder: '[ROUTING_NUMBER]'
+    placeholder:
+      '[ROUTING_NUMBER]'
   },
 
   {
     type: 'DRIVER_LICENSE',
     mode: 'trailing',
     priority: 90,
+    requireDigit: true,
     regex:
       /(?:Driver'?s?\s*License(?:\s+Number)?|DL\s*(?:No\.?|#)?|License\s+Number)[:\s]*([A-Z0-9]{5,15})\b/gi,
-    placeholder: '[DRIVER_LICENSE]'
+    placeholder:
+      '[DRIVER_LICENSE]'
   },
 
   {
     type: 'MEDICARE_NUMBER',
     mode: 'trailing',
     priority: 88,
+    requireDigit: true,
     regex:
       /(?:Medicare\s*(?:Number|No\.?|#)?)[:\s]*([A-Z0-9-]{5,15})\b/gi,
-    placeholder: '[MEDICARE_NUMBER]'
+    placeholder:
+      '[MEDICARE_NUMBER]'
   },
 
   {
     type: 'POLICY_NUMBER',
     mode: 'trailing',
     priority: 85,
+    requireDigit: true,
     regex:
       /(?:Policy\s*(?:Number|No\.?|#)?)[:\s]*([A-Z0-9-]{4,20})\b/gi,
-    placeholder: '[POLICY_NUMBER]'
+    placeholder:
+      '[POLICY_NUMBER]'
   },
 
   {
     type: 'MEMBER_ID',
     mode: 'trailing',
     priority: 84,
+    requireDigit: true,
     regex:
       /(?:Member\s*(?:ID|Number|No\.?|#)?|Subscriber\s*(?:ID|Number|No\.?|#)?)[:\s]*([A-Z0-9-]{4,20})\b/gi,
-    placeholder: '[MEMBER_ID]'
+    placeholder:
+      '[MEMBER_ID]'
   },
 
   {
     type: 'CASE_NUMBER',
     mode: 'trailing',
     priority: 83,
+    requireDigit: true,
     regex:
       /(?:Case\s*(?:Number|No\.?|#)?|Claim\s*(?:Number|No\.?|#)?)[:\s]*([A-Z0-9-]{4,20})\b/gi,
-    placeholder: '[CASE_NUMBER]'
+    placeholder:
+      '[CASE_NUMBER]'
   },
 
   {
     type: 'INVOICE_NUMBER',
     mode: 'trailing',
     priority: 82,
+    requireDigit: true,
     regex:
       /(?:Invoice\s*(?:Number|No\.?|#)?)[:\s]*([A-Z0-9-]{4,20})\b/gi,
-    placeholder: '[INVOICE_NUMBER]'
+    placeholder:
+      '[INVOICE_NUMBER]'
   },
 
   {
     type: 'ACCOUNT_NUMBER',
     mode: 'trailing',
     priority: 80,
+    requireDigit: true,
     regex:
       /(?:Service\s+Account(?:\s+Number)?|Account\s*(?:Number|No\.?|#)?|Acct\.?\s*(?:Number|No\.?|#)?)[:\s]*([A-Z0-9][A-Z0-9-]{3,19})\b/gi,
-    placeholder: '[ACCOUNT_NUMBER]'
+    placeholder:
+      '[ACCOUNT_NUMBER]'
   },
 
   {
     type: 'POD_ID',
     mode: 'trailing',
     priority: 78,
+    requireDigit: true,
     regex:
       /(?:POD[-\s]?ID)[:\s]*([A-Z0-9-]{3,20})\b/gi,
-    placeholder: '[POD_ID]'
+    placeholder:
+      '[POD_ID]'
   },
 
   {
@@ -217,7 +297,8 @@ const PII_PATTERNS = [
     priority: 70,
     regex:
       /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,
-    placeholder: '[EMAIL]'
+    placeholder:
+      '[EMAIL]'
   },
 
   {
@@ -226,7 +307,8 @@ const PII_PATTERNS = [
     priority: 60,
     regex:
       /(?:\+?1[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]\d{3}[\s.-]\d{4}\b/g,
-    placeholder: '[PHONE]'
+    placeholder:
+      '[PHONE]'
   },
 
   {
@@ -234,17 +316,9 @@ const PII_PATTERNS = [
     mode: 'full',
     priority: 50,
     regex:
-      /\b\d{1,6}\s+[A-Za-z0-9.'’#-]+(?:\s+[A-Za-z0-9.'’#-]+){0,4}\s+(?:Street|St|Avenue|Ave|Boulevard|Blvd|Road|Rd|Drive|Dr|Lane|Ln|Court|Ct|Way|Place|Pl|Circle|Cir|Parkway|Pkwy|Highway|Hwy|Terrace|Ter|Trail|Trl)\.?\b/gi,
-    placeholder: '[ADDRESS]'
-  },
-
-  {
-    type: 'DATE',
-    mode: 'full',
-    priority: 40,
-    regex:
-      /\b(?:0[1-9]|1[0-2])[\/-](?:0[1-9]|[12]\d|3[01])[\/-](?:19|20)\d{2}\b/g,
-    placeholder: '[DATE]'
+      /\b(?:\d{1,6}\s+[A-Za-z0-9.'’#-]+(?:\s+[A-Za-z0-9.'’#-]+){0,4}\s+(?:Street|St|Avenue|Ave|Boulevard|Blvd|Road|Rd|Drive|Dr|Lane|Ln|Court|Ct|Way|Place|Pl|Circle|Cir|Parkway|Pkwy|Highway|Hwy|Terrace|Ter|Trail|Trl)\.?(?:\s*,?\s*(?:Apt|Suite|Ste|Unit|#)\.?\s*[A-Za-z0-9-]+)?|P\.?O\.?\s*Box\s*\d+)\b/gi,
+    placeholder:
+      '[ADDRESS]'
   },
 
   {
@@ -252,8 +326,19 @@ const PII_PATTERNS = [
     mode: 'trailing',
     priority: 30,
     regex:
-      /\b[A-Z]{2}\s+(\d{5}(?:-\d{4})?)\b/g,
-    placeholder: '[ZIP]'
+      /\b[A-Z]{2}\s*,?\s+(\d{5}(?:-\d{4})?)\b/g,
+    placeholder:
+      '[ZIP]'
+  },
+
+  {
+    type: 'ZIP_CODE',
+    mode: 'full',
+    priority: 20,
+    regex:
+      /(?<=\s)\d{5}(?:-\d{4})?(?=\s*$)/gm,
+    placeholder:
+      '[ZIP]'
   }
 ];
 
@@ -262,60 +347,100 @@ const PII_PATTERNS = [
 // Collect Raw PII
 // ============================================================
 
-const collectRawDetections = (text) => {
+const collectRawDetections = (
+  text
+) => {
   const raw = [];
 
-  PII_PATTERNS.forEach((pattern) => {
-    pattern.regex.lastIndex = 0;
+  PII_PATTERNS.forEach(
+    (pattern) => {
+      pattern.regex.lastIndex = 0;
 
-    let match;
+      let match;
 
-    while ((match = pattern.regex.exec(text)) !== null) {
-      if (pattern.mode === 'full') {
-        raw.push({
-          type: pattern.type,
-          value: match[0],
-          start: match.index,
-          end: match.index + match[0].length,
-          placeholder: pattern.placeholder,
-          priority: pattern.priority
-        });
-      }
-
-      if (pattern.mode === 'trailing') {
-        const value = match[1];
-
-        if (value) {
-          const fullMatch = match[0];
-
-          const valueStart =
-            match.index +
-            fullMatch.length -
-            value.length;
-
-          const valueEnd =
-            valueStart +
-            value.length;
-
+      while (
+        (match =
+          pattern.regex.exec(text)) !==
+        null
+      ) {
+        if (
+          pattern.mode === 'full'
+        ) {
           raw.push({
-            type: pattern.type,
-            value,
-            start: valueStart,
-            end: valueEnd,
-            placeholder: pattern.placeholder,
-            priority: pattern.priority
+            type:
+              pattern.type,
+            value:
+              match[0],
+            start:
+              match.index,
+            end:
+              match.index +
+              match[0].length,
+            placeholder:
+              pattern.placeholder,
+            priority:
+              pattern.priority
           });
         }
-      }
 
-      if (match[0].length === 0) {
-        pattern.regex.lastIndex += 1;
+        if (
+          pattern.mode ===
+          'trailing'
+        ) {
+          const value =
+            match[1];
+
+          const passesDigitCheck =
+            !pattern.requireDigit ||
+            /\d/.test(
+              value || ''
+            );
+
+          if (
+            value &&
+            passesDigitCheck
+          ) {
+            const fullMatch =
+              match[0];
+
+            const valueStart =
+              match.index +
+              fullMatch.length -
+              value.length;
+
+            const valueEnd =
+              valueStart +
+              value.length;
+
+            raw.push({
+              type:
+                pattern.type,
+              value,
+              start:
+                valueStart,
+              end:
+                valueEnd,
+              placeholder:
+                pattern.placeholder,
+              priority:
+                pattern.priority
+            });
+          }
+        }
+
+        if (
+          match[0].length === 0
+        ) {
+          pattern.regex.lastIndex += 1;
+        }
       }
     }
-  });
+  );
 
   raw.push(
-    ...findCreditCardDetections(text)
+    ...findCreditCardDetections(
+      text
+    )
   );
 
   return raw;
@@ -326,36 +451,60 @@ const collectRawDetections = (text) => {
 // Resolve PII Overlap
 // ============================================================
 
-const resolveOverlaps = (rawDetections) => {
-  const sorted = [...rawDetections].sort(
+const resolveOverlaps = (
+  rawDetections
+) => {
+  const sorted = [
+    ...rawDetections
+  ].sort(
     (a, b) => {
-      if (b.priority !== a.priority) {
-        return b.priority - a.priority;
+      if (
+        b.priority !==
+        a.priority
+      ) {
+        return (
+          b.priority -
+          a.priority
+        );
       }
 
-      const aLength = a.end - a.start;
-      const bLength = b.end - b.start;
+      const aLength =
+        a.end - a.start;
 
-      return bLength - aLength;
+      const bLength =
+        b.end - b.start;
+
+      return (
+        bLength -
+        aLength
+      );
     }
   );
 
   const accepted = [];
 
-  sorted.forEach((detection) => {
-    const overlaps = accepted.some(
-      (existing) =>
-        detection.start < existing.end &&
-        existing.start < detection.end
-    );
+  sorted.forEach(
+    (detection) => {
+      const overlaps =
+        accepted.some(
+          (existing) =>
+            detection.start <
+              existing.end &&
+            existing.start <
+              detection.end
+        );
 
-    if (!overlaps) {
-      accepted.push(detection);
+      if (!overlaps) {
+        accepted.push(
+          detection
+        );
+      }
     }
-  });
+  );
 
   return accepted.sort(
-    (a, b) => a.start - b.start
+    (a, b) =>
+      a.start - b.start
   );
 };
 
@@ -364,8 +513,13 @@ const resolveOverlaps = (rawDetections) => {
 // Local PII Detection
 // ============================================================
 
-const detectLocalPII = (text) => {
-  if (!text || !text.trim()) {
+const detectLocalPII = (
+  text
+) => {
+  if (
+    !text ||
+    !text.trim()
+  ) {
     return {
       detections: [],
       redactedText: ''
@@ -373,27 +527,2207 @@ const detectLocalPII = (text) => {
   }
 
   const rawDetections =
-    collectRawDetections(text);
+    collectRawDetections(
+      text
+    );
 
   const detections =
-    resolveOverlaps(rawDetections);
+    resolveOverlaps(
+      rawDetections
+    );
 
-  let redactedText = text;
+  let redactedText =
+    text;
 
-  // Replace from right → left
-  // so indexes remain valid.
-  [...detections]
-    .sort((a, b) => b.start - a.start)
-    .forEach((item) => {
-      redactedText =
-        redactedText.slice(0, item.start) +
-        item.placeholder +
-        redactedText.slice(item.end);
-    });
+  [
+    ...detections
+  ]
+    .sort(
+      (a, b) =>
+        b.start -
+        a.start
+    )
+    .forEach(
+      (item) => {
+        redactedText =
+          redactedText.slice(
+            0,
+            item.start
+          ) +
+          item.placeholder +
+          redactedText.slice(
+            item.end
+          );
+      }
+    );
 
   return {
     detections,
     redactedText
+  };
+};
+
+
+// ============================================================
+// OCR Layout Helpers
+// ============================================================
+
+const getPolygonBounds = (
+  poly
+) => {
+  if (
+    !Array.isArray(poly) ||
+    poly.length === 0
+  ) {
+    return null;
+  }
+
+  const points =
+    poly
+      .map(
+        (point) => {
+          if (
+            Array.isArray(
+              point
+            )
+          ) {
+            return {
+              x: Number(
+                point[0]
+              ),
+              y: Number(
+                point[1]
+              )
+            };
+          }
+
+          if (
+            point &&
+            typeof point ===
+              'object'
+          ) {
+            return {
+              x: Number(
+                point.x ??
+                  point[0]
+              ),
+              y: Number(
+                point.y ??
+                  point[1]
+              )
+            };
+          }
+
+          return null;
+        }
+      )
+      .filter(
+        (point) =>
+          point &&
+          Number.isFinite(
+            point.x
+          ) &&
+          Number.isFinite(
+            point.y
+          )
+      );
+
+  if (!points.length) {
+    return null;
+  }
+
+  const xs =
+    points.map(
+      (point) =>
+        point.x
+    );
+
+  const ys =
+    points.map(
+      (point) =>
+        point.y
+    );
+
+  const left =
+    Math.min(...xs);
+
+  const right =
+    Math.max(...xs);
+
+  const top =
+    Math.min(...ys);
+
+  const bottom =
+    Math.max(...ys);
+
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    width:
+      Math.max(
+        1,
+        right - left
+      ),
+    height:
+      Math.max(
+        1,
+        bottom - top
+      ),
+    centerX:
+      (left + right) /
+      2,
+    centerY:
+      (top + bottom) /
+      2
+  };
+};
+
+
+const getVerticalOverlapRatio = (
+  a,
+  b
+) => {
+  const top =
+    Math.max(
+      a.top,
+      b.top
+    );
+
+  const bottom =
+    Math.min(
+      a.bottom,
+      b.bottom
+    );
+
+  const overlap =
+    Math.max(
+      0,
+      bottom - top
+    );
+
+  const minHeight =
+    Math.min(
+      a.height,
+      b.height
+    );
+
+  if (
+    minHeight <= 0
+  ) {
+    return 0;
+  }
+
+  return (
+    overlap /
+    minHeight
+  );
+};
+
+
+const getHorizontalOverlapRatio = (
+  a,
+  b
+) => {
+  const left =
+    Math.max(
+      a.left,
+      b.left
+    );
+
+  const right =
+    Math.min(
+      a.right,
+      b.right
+    );
+
+  const overlap =
+    Math.max(
+      0,
+      right - left
+    );
+
+  const minWidth =
+    Math.min(
+      a.width,
+      b.width
+    );
+
+  if (
+    minWidth <= 0
+  ) {
+    return 0;
+  }
+
+  return (
+    overlap /
+    minWidth
+  );
+};
+
+
+const isSameTextRow = (
+  a,
+  b
+) => {
+  const verticalOverlap =
+    getVerticalOverlapRatio(
+      a,
+      b
+    );
+
+  if (
+    verticalOverlap >=
+    0.35
+  ) {
+    return true;
+  }
+
+  const centerDistance =
+    Math.abs(
+      a.centerY -
+        b.centerY
+    );
+
+  const referenceHeight =
+    Math.min(
+      a.height,
+      b.height
+    );
+
+  return (
+    centerDistance <=
+    Math.max(
+      8,
+      referenceHeight *
+        0.55
+    )
+  );
+};
+
+
+const buildVisualRows = (
+  lines
+) => {
+  const rows = [];
+
+  const sorted =
+    [...lines].sort(
+      (a, b) => {
+        if (
+          Math.abs(
+            a.centerY -
+              b.centerY
+          ) > 4
+        ) {
+          return (
+            a.top -
+            b.top
+          );
+        }
+
+        return (
+          a.left -
+          b.left
+        );
+      }
+    );
+
+  sorted.forEach(
+    (line) => {
+      let bestRow =
+        null;
+
+      let bestScore =
+        -Infinity;
+
+      rows.forEach(
+        (row) => {
+          const representative =
+            row.lines[0];
+
+          if (
+            !isSameTextRow(
+              line,
+              representative
+            )
+          ) {
+            return;
+          }
+
+          const verticalDistance =
+            Math.abs(
+              line.centerY -
+                row.centerY
+            );
+
+          const score =
+            -verticalDistance;
+
+          if (
+            score >
+            bestScore
+          ) {
+            bestScore =
+              score;
+
+            bestRow =
+              row;
+          }
+        }
+      );
+
+      if (!bestRow) {
+        rows.push({
+          lines: [line],
+          top: line.top,
+          bottom:
+            line.bottom,
+          centerY:
+            line.centerY
+        });
+
+        return;
+      }
+
+      bestRow.lines.push(
+        line
+      );
+
+      bestRow.top =
+        Math.min(
+          bestRow.top,
+          line.top
+        );
+
+      bestRow.bottom =
+        Math.max(
+          bestRow.bottom,
+          line.bottom
+        );
+
+      bestRow.centerY =
+        (bestRow.top +
+          bestRow.bottom) /
+        2;
+    }
+  );
+
+  rows.forEach(
+    (row) => {
+      row.lines.sort(
+        (a, b) =>
+          a.left -
+          b.left
+      );
+    }
+  );
+
+  rows.sort(
+    (a, b) =>
+      a.top - b.top
+  );
+
+  return rows;
+};
+
+
+const detectLikelyColumns = (
+  lines
+) => {
+  if (
+    lines.length < 6
+  ) {
+    return null;
+  }
+
+  const pageLeft =
+    Math.min(
+      ...lines.map(
+        (line) =>
+          line.left
+      )
+    );
+
+  const pageRight =
+    Math.max(
+      ...lines.map(
+        (line) =>
+          line.right
+      )
+    );
+
+  const pageWidth =
+    pageRight -
+    pageLeft;
+
+  if (
+    pageWidth <= 0
+  ) {
+    return null;
+  }
+
+  const centers =
+    lines.map(
+      (line) =>
+        line.centerX
+    );
+
+  const sortedCenters =
+    [...centers].sort(
+      (a, b) =>
+        a - b
+    );
+
+  let largestGap =
+    0;
+
+  let largestGapIndex =
+    -1;
+
+  for (
+    let i = 1;
+    i <
+    sortedCenters.length;
+    i += 1
+  ) {
+    const gap =
+      sortedCenters[i] -
+      sortedCenters[
+        i - 1
+      ];
+
+    if (
+      gap >
+      largestGap
+    ) {
+      largestGap =
+        gap;
+
+      largestGapIndex =
+        i;
+    }
+  }
+
+  if (
+    largestGap <
+    pageWidth * 0.18
+  ) {
+    return null;
+  }
+
+  const leftCenters =
+    sortedCenters.slice(
+      0,
+      largestGapIndex
+    );
+
+  const rightCenters =
+    sortedCenters.slice(
+      largestGapIndex
+    );
+
+  if (
+    leftCenters.length <
+      3 ||
+    rightCenters.length <
+      3
+  ) {
+    return null;
+  }
+
+  const leftBoundary =
+    (
+      leftCenters[
+        leftCenters.length -
+          1
+      ] +
+      rightCenters[0]
+    ) / 2;
+
+  const leftLines =
+    lines.filter(
+      (line) =>
+        line.centerX <
+        leftBoundary
+    );
+
+  const rightLines =
+    lines.filter(
+      (line) =>
+        line.centerX >=
+        leftBoundary
+    );
+
+  if (
+    leftLines.length <
+      3 ||
+    rightLines.length <
+      3
+  ) {
+    return null;
+  }
+
+  const leftWidth =
+    Math.max(
+      ...leftLines.map(
+        (line) =>
+          line.right
+      )
+    ) -
+    Math.min(
+      ...leftLines.map(
+        (line) =>
+          line.left
+      )
+    );
+
+  const rightWidth =
+    Math.max(
+      ...rightLines.map(
+        (line) =>
+          line.right
+      )
+    ) -
+    Math.min(
+      ...rightLines.map(
+        (line) =>
+          line.left
+      )
+    );
+
+  if (
+    leftWidth <
+      pageWidth * 0.2 ||
+    rightWidth <
+      pageWidth * 0.2
+  ) {
+    return null;
+  }
+
+  return {
+    left:
+      leftLines,
+    right:
+      rightLines,
+    boundary:
+      leftBoundary
+  };
+};
+
+
+const sortColumnLines = (
+  lines
+) => {
+  const rows =
+    buildVisualRows(
+      lines
+    );
+
+  const result = [];
+
+  rows.forEach(
+    (row) => {
+      row.lines.forEach(
+        (line) => {
+          result.push(
+            line
+          );
+        }
+      );
+    }
+  );
+
+  return result;
+};
+
+
+const buildSpatialReadingOrder = (
+  lines
+) => {
+  if (
+    !lines.length
+  ) {
+    return [];
+  }
+
+  const columns =
+    detectLikelyColumns(
+      lines
+    );
+
+  if (!columns) {
+    return sortColumnLines(
+      lines
+    );
+  }
+
+  const allLeft =
+    Math.min(
+      ...lines.map(
+        (line) =>
+          line.left
+      )
+    );
+
+  const allRight =
+    Math.max(
+      ...lines.map(
+        (line) =>
+          line.right
+      )
+    );
+
+  const pageWidth =
+    allRight -
+    allLeft;
+
+  const fullWidthLines =
+    lines.filter(
+      (line) => {
+        const widthRatio =
+          line.width /
+          pageWidth;
+
+        return (
+          widthRatio >=
+          0.65
+        );
+      }
+    );
+
+  const columnLines =
+    lines.filter(
+      (line) =>
+        !fullWidthLines.includes(
+          line
+        )
+    );
+
+  const leftColumn =
+    columnLines.filter(
+      (line) =>
+        line.centerX <
+        columns.boundary
+    );
+
+  const rightColumn =
+    columnLines.filter(
+      (line) =>
+        line.centerX >=
+        columns.boundary
+    );
+
+  const fullWidthOrdered =
+    sortColumnLines(
+      fullWidthLines
+    );
+
+  const leftOrdered =
+    sortColumnLines(
+      leftColumn
+    );
+
+  const rightOrdered =
+    sortColumnLines(
+      rightColumn
+    );
+
+  return [
+    ...fullWidthOrdered,
+    ...leftOrdered,
+    ...rightOrdered
+  ];
+};
+
+
+const buildOCRBlocks = (
+  orderedLines
+) => {
+  if (
+    !orderedLines.length
+  ) {
+    return [];
+  }
+
+  const blocks = [];
+
+  orderedLines.forEach(
+    (line) => {
+      let bestBlock =
+        null;
+
+      let bestScore =
+        -Infinity;
+
+      blocks.forEach(
+        (block) => {
+          const lastLine =
+            block.lines[
+              block.lines.length -
+                1
+            ];
+
+          const verticalGap =
+            line.top -
+            lastLine.bottom;
+
+          const horizontalOverlap =
+            getHorizontalOverlapRatio(
+              line,
+              lastLine
+            );
+
+          const xDistance =
+            Math.min(
+              Math.abs(
+                line.left -
+                  lastLine.right
+              ),
+              Math.abs(
+                lastLine.left -
+                  line.right
+              )
+            );
+
+          const reasonableVerticalGap =
+            verticalGap <=
+            Math.max(
+              80,
+              lastLine.height *
+                2.8
+            );
+
+          const reasonableHorizontalGap =
+            xDistance <=
+            Math.max(
+              120,
+              lastLine.height *
+                5
+            );
+
+          if (
+            !reasonableVerticalGap
+          ) {
+            return;
+          }
+
+          if (
+            horizontalOverlap >=
+              0.15 ||
+            reasonableHorizontalGap
+          ) {
+            const score =
+              horizontalOverlap *
+                10 -
+              Math.max(
+                0,
+                verticalGap
+              ) /
+                Math.max(
+                  1,
+                  lastLine.height
+                );
+
+            if (
+              score >
+              bestScore
+            ) {
+              bestScore =
+                score;
+
+              bestBlock =
+                block;
+            }
+          }
+        }
+      );
+
+      if (!bestBlock) {
+        blocks.push({
+          lines: [line],
+          left: line.left,
+          top: line.top,
+          right: line.right,
+          bottom: line.bottom
+        });
+
+        return;
+      }
+
+      bestBlock.lines.push(
+        line
+      );
+
+      bestBlock.left =
+        Math.min(
+          bestBlock.left,
+          line.left
+        );
+
+      bestBlock.top =
+        Math.min(
+          bestBlock.top,
+          line.top
+        );
+
+      bestBlock.right =
+        Math.max(
+          bestBlock.right,
+          line.right
+        );
+
+      bestBlock.bottom =
+        Math.max(
+          bestBlock.bottom,
+          line.bottom
+        );
+    }
+  );
+
+  return blocks.map(
+    (block, index) => ({
+      id:
+        index + 1,
+
+      text:
+        block.lines
+          .map(
+            (line) =>
+              line.text
+          )
+          .join('\n'),
+
+      lines:
+        block.lines,
+
+      bbox: {
+        left:
+          block.left,
+        top:
+          block.top,
+        right:
+          block.right,
+        bottom:
+          block.bottom,
+        width:
+          block.right -
+          block.left,
+        height:
+          block.bottom -
+          block.top
+      }
+    })
+  );
+};
+
+
+// ============================================================
+// Extract PaddleOCR Structure
+// ============================================================
+
+const extractPaddleOCRStructure = (
+  ocrResult
+) => {
+  const items =
+    Array.isArray(
+      ocrResult?.items
+    )
+      ? ocrResult.items
+      : [];
+
+  const rawLines = [];
+
+  items.forEach(
+    (item, index) => {
+      const text =
+        typeof item?.text ===
+        'string'
+          ? item.text.trim()
+          : '';
+
+      if (!text) {
+        return;
+      }
+
+      const score =
+        typeof item?.score ===
+        'number'
+          ? item.score
+          : null;
+
+      const poly =
+        item?.poly ||
+        null;
+
+      const bbox =
+        getPolygonBounds(
+          poly
+        );
+
+      const safeBBox =
+        bbox || {
+          left:
+            index * 10,
+          top:
+            index * 10,
+          right:
+            index * 10 +
+            100,
+          bottom:
+            index * 10 +
+            20,
+          width:
+            100,
+          height:
+            20,
+          centerX:
+            index * 10 +
+            50,
+          centerY:
+            index * 10 +
+            10
+        };
+
+      rawLines.push({
+        id: index,
+
+        text,
+
+        confidence:
+          score !== null
+            ? score * 100
+            : null,
+
+        bbox: poly,
+
+        left:
+          safeBBox.left,
+
+        top:
+          safeBBox.top,
+
+        right:
+          safeBBox.right,
+
+        bottom:
+          safeBBox.bottom,
+
+        width:
+          safeBBox.width,
+
+        height:
+          safeBBox.height,
+
+        centerX:
+          safeBBox.centerX,
+
+        centerY:
+          safeBBox.centerY
+      });
+    }
+  );
+
+  const orderedLines =
+    buildSpatialReadingOrder(
+      rawLines
+    );
+
+  const blocks =
+    buildOCRBlocks(
+      orderedLines
+    );
+
+  const finalLines =
+    orderedLines.map(
+      (line, index) => ({
+        ...line,
+        readingOrder:
+          index + 1
+      })
+    );
+
+  return {
+    lines:
+      finalLines,
+    blocks,
+    rawLines
+  };
+};
+
+
+// ============================================================
+// Critical Field Detection
+//
+// We deliberately keep this conservative.
+// The goal is NOT to classify the whole document.
+// The goal is to find lines where a second OCR pass
+// is valuable because numbers/dates/IDs matter.
+// ============================================================
+
+const getCriticalFieldType = (
+  text
+) => {
+  const value =
+    String(
+      text || ''
+    ).trim();
+
+  if (!value) {
+    return null;
+  }
+
+  const lower =
+    value.toLowerCase();
+
+  if (
+    /\$\s?\d[\d,]*(?:\.\d{0,2})?/.test(
+      value
+    ) ||
+    /\b(?:amount|balance|total|payment|charge|fee|premium|due)\b/i.test(
+      value
+    )
+  ) {
+    return 'AMOUNT';
+  }
+
+  if (
+    /\b(?:due\s*date|date|dated|effective|expires?|expiration)\b/i.test(
+      value
+    ) ||
+    /\b\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}\b/.test(
+      value
+    ) ||
+    /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b/i.test(
+      value
+    )
+  ) {
+    return 'DATE';
+  }
+
+  if (
+    /\b(?:account|acct|invoice|claim|case|policy|member|subscriber|reference|ref|parcel|routing|medicare|license|id|number|no\.|#)\b/i.test(
+      value
+    ) &&
+    digitCount(value) >= 2
+  ) {
+    return 'IDENTIFIER';
+  }
+
+  if (
+    /\b(?:phone|telephone|tel|mobile|cell)\b/i.test(
+      value
+    ) ||
+    /\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}/.test(
+      value
+    )
+  ) {
+    return 'PHONE';
+  }
+
+  if (
+    /\b[A-Z]{2}\s*,?\s+\d{5}(?:-\d{4})?\b/.test(
+      value
+    ) ||
+    /\b\d{5}(?:-\d{4})?\b/.test(
+      value
+    )
+  ) {
+    return 'ZIP';
+  }
+
+  const digits =
+    digitCount(value);
+
+  const alphaNumeric =
+    alphaNumericCount(
+      value
+    );
+
+  if (
+    digits >= 4 &&
+    alphaNumeric > 0 &&
+    digits /
+      Math.max(
+        1,
+        alphaNumeric
+      ) >= 0.35
+  ) {
+    return 'NUMERIC';
+  }
+
+  return null;
+};
+
+
+const getCriticalPriority = (
+  fieldType,
+  text,
+  confidence
+) => {
+  let score = 0;
+
+  if (
+    fieldType ===
+    'AMOUNT'
+  ) {
+    score += 100;
+  } else if (
+    fieldType ===
+    'DATE'
+  ) {
+    score += 95;
+  } else if (
+    fieldType ===
+    'IDENTIFIER'
+  ) {
+    score += 92;
+  } else if (
+    fieldType ===
+    'PHONE'
+  ) {
+    score += 80;
+  } else if (
+    fieldType ===
+    'ZIP'
+  ) {
+    score += 65;
+  } else if (
+    fieldType ===
+    'NUMERIC'
+  ) {
+    score += 55;
+  }
+
+  const numeric =
+    digitCount(text);
+
+  score += Math.min(
+    30,
+    numeric * 2
+  );
+
+  if (
+    typeof confidence ===
+      'number' &&
+    confidence < 80
+  ) {
+    score +=
+      (80 -
+        confidence) *
+      1.5;
+  }
+
+  return score;
+};
+
+
+// ============================================================
+// Crop Local Image Region
+// ============================================================
+
+const cropImageRegion = async (
+  imageBlob,
+  bbox,
+  options = {}
+) => {
+  const {
+    horizontalPaddingRatio = 0.10,
+    verticalPaddingRatio = 0.65,
+    scale = 2,
+    maxDimension = 1600,
+
+    /*
+     * OCR 当时实际使用的图片尺寸。
+     * 不传就按 1:1 处理（bbox 与图片同一坐标系）。
+     */
+    sourceWidth = null,
+    sourceHeight = null
+  } = options;
+
+  const source =
+    await createImageBitmap(
+      imageBlob
+    );
+
+  try {
+    const imageWidth =
+      source.width;
+
+    const imageHeight =
+      source.height;
+
+    /*
+     * BUGFIX
+     *
+     * PaddleOCR 返回的 poly 坐标，本来就是「送进去那张图」的像素坐标。
+     * 原来这里除以硬编码的 2200，只有当图片正好是 2200 见方时才成立。
+     *
+     * 实际上竖版信件被缩放成 1700 x 2200，
+     * 于是 bboxScaleX = 1700 / 2200 = 0.77，
+     * 所有 x 坐标被缩到 77%，二次识别裁出来的是错误区域，
+     * 金额、日期这些关键字段反而越「精修」越错。
+     *
+     * 现在改成按调用方给的真实 OCR 源尺寸换算，默认 1:1。
+     */
+    const bboxScaleX =
+      imageWidth /
+      (sourceWidth || imageWidth);
+
+    const bboxScaleY =
+      imageHeight /
+      (sourceHeight || imageHeight);
+
+    let left =
+      bbox.left *
+      bboxScaleX;
+
+    let top =
+      bbox.top *
+      bboxScaleY;
+
+    let right =
+      bbox.right *
+      bboxScaleX;
+
+    let bottom =
+      bbox.bottom *
+      bboxScaleY;
+
+    const boxWidth =
+      Math.max(
+        1,
+        right - left
+      );
+
+    const boxHeight =
+      Math.max(
+        1,
+        bottom - top
+      );
+
+    const horizontalPadding =
+      boxWidth *
+      horizontalPaddingRatio;
+
+    const verticalPadding =
+      boxHeight *
+      verticalPaddingRatio;
+
+    left =
+      Math.floor(
+        left -
+          horizontalPadding
+      );
+
+    top =
+      Math.floor(
+        top -
+          verticalPadding
+      );
+
+    right =
+      Math.ceil(
+        right +
+          horizontalPadding
+      );
+
+    bottom =
+      Math.ceil(
+        bottom +
+          verticalPadding
+      );
+
+    left =
+      clamp(
+        left,
+        0,
+        imageWidth - 1
+      );
+
+    top =
+      clamp(
+        top,
+        0,
+        imageHeight - 1
+      );
+
+    right =
+      clamp(
+        right,
+        left + 1,
+        imageWidth
+      );
+
+    bottom =
+      clamp(
+        bottom,
+        top + 1,
+        imageHeight
+      );
+
+    const cropWidth =
+      Math.max(
+        1,
+        right - left
+      );
+
+    const cropHeight =
+      Math.max(
+        1,
+        bottom - top
+      );
+
+    const scaledWidth =
+      Math.max(
+        1,
+        Math.round(
+          cropWidth * scale
+        )
+      );
+
+    const scaledHeight =
+      Math.max(
+        1,
+        Math.round(
+          cropHeight * scale
+        )
+      );
+
+    let canvasWidth =
+      scaledWidth;
+
+    let canvasHeight =
+      scaledHeight;
+
+    const largest =
+      Math.max(
+        canvasWidth,
+        canvasHeight
+      );
+
+    if (
+      largest >
+      maxDimension
+    ) {
+      const ratio =
+        maxDimension /
+        largest;
+
+      canvasWidth =
+        Math.max(
+          1,
+          Math.round(
+            canvasWidth *
+              ratio
+          )
+        );
+
+      canvasHeight =
+        Math.max(
+          1,
+          Math.round(
+            canvasHeight *
+              ratio
+          )
+        );
+    }
+
+    const canvas =
+      document.createElement(
+        'canvas'
+      );
+
+    canvas.width =
+      canvasWidth;
+
+    canvas.height =
+      canvasHeight;
+
+    const ctx =
+      canvas.getContext(
+        '2d'
+      );
+
+    if (!ctx) {
+      throw new Error(
+        '局部 OCR 图片处理失败。'
+      );
+    }
+
+    ctx.imageSmoothingEnabled =
+      true;
+
+    ctx.imageSmoothingQuality =
+      'high';
+
+    ctx.drawImage(
+      source,
+      left,
+      top,
+      cropWidth,
+      cropHeight,
+      0,
+      0,
+      canvasWidth,
+      canvasHeight
+    );
+
+    const blob =
+      await new Promise(
+        (
+          resolve,
+          reject
+        ) => {
+          canvas.toBlob(
+            (result) => {
+              if (
+                result
+              ) {
+                resolve(
+                  result
+                );
+              } else {
+                reject(
+                  new Error(
+                    '局部 OCR 图片生成失败。'
+                  )
+                );
+              }
+            },
+            'image/jpeg',
+            0.96
+          );
+        }
+      );
+
+    return {
+      blob,
+      width:
+        canvasWidth,
+      height:
+        canvasHeight,
+      sourceRegion: {
+        left,
+        top,
+        right,
+        bottom,
+        width:
+          cropWidth,
+        height:
+          cropHeight
+      }
+    };
+  } finally {
+    source.close();
+  }
+};
+
+
+// ============================================================
+// Extract Best OCR Text From a Small Crop
+// ============================================================
+
+const extractBestCropOCR = (
+  result
+) => {
+  const items =
+    Array.isArray(
+      result?.items
+    )
+      ? result.items
+      : [];
+
+  if (
+    !items.length
+  ) {
+    return {
+      text: '',
+      confidence: null,
+      items: []
+    };
+  }
+
+  const cleaned =
+    items
+      .map(
+        (item) => ({
+          text:
+            typeof item?.text ===
+            'string'
+              ? item.text.trim()
+              : '',
+          score:
+            typeof item?.score ===
+            'number'
+              ? item.score *
+                100
+              : null,
+          poly:
+            item?.poly ||
+            null
+        })
+      )
+      .filter(
+        (item) =>
+          item.text
+      );
+
+  if (
+    !cleaned.length
+  ) {
+    return {
+      text: '',
+      confidence: null,
+      items: []
+    };
+  }
+
+  const scores =
+    cleaned
+      .map(
+        (item) =>
+          item.score
+      )
+      .filter(
+        (value) =>
+          typeof value ===
+          'number'
+      );
+
+  const confidence =
+    scores.length
+      ? scores.reduce(
+          (
+            sum,
+            value
+          ) =>
+            sum + value,
+          0
+        ) /
+        scores.length
+      : null;
+
+  const text =
+    cleaned
+      .map(
+        (item) =>
+          item.text
+      )
+      .join(' ');
+
+  return {
+    text,
+    confidence,
+    items:
+      cleaned
+  };
+};
+
+
+// ============================================================
+// Score Candidate OCR Result
+//
+// This is intentionally a validation score,
+// not a claim that we know the true answer.
+// ============================================================
+
+const scoreCandidate = (
+  text,
+  confidence,
+  fieldType
+) => {
+  const value =
+    normalizeTextForComparison(
+      text
+    );
+
+  if (!value) {
+    return 0;
+  }
+
+  let score =
+    typeof confidence ===
+      'number'
+      ? confidence
+      : 50;
+
+  if (
+    fieldType ===
+    'AMOUNT'
+  ) {
+    if (
+      /\$\s?\d[\d,]*(?:\.\d{2})\b/.test(
+        value
+      )
+    ) {
+      score += 30;
+    } else if (
+      /\d[\d,]*(?:\.\d{1,2})?\b/.test(
+        value
+      )
+    ) {
+      score += 10;
+    }
+  }
+
+  if (
+    fieldType ===
+    'DATE'
+  ) {
+    if (
+      /\b\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}\b/.test(
+        value
+      ) ||
+      /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b/i.test(
+        value
+      )
+    ) {
+      score += 30;
+    }
+  }
+
+  if (
+    fieldType ===
+    'PHONE'
+  ) {
+    const digits =
+      value.replace(
+        /\D/g,
+        ''
+      );
+
+    if (
+      digits.length ===
+      10
+    ) {
+      score += 25;
+    }
+  }
+
+  if (
+    fieldType ===
+      'IDENTIFIER' ||
+    fieldType ===
+      'NUMERIC'
+  ) {
+    const digits =
+      digitCount(
+        value
+      );
+
+    if (
+      digits >= 4
+    ) {
+      score +=
+        Math.min(
+          25,
+          digits * 2
+        );
+    }
+  }
+
+  if (
+    fieldType ===
+    'ZIP'
+  ) {
+    if (
+      /\b\d{5}(?:-\d{4})?\b/.test(
+        value
+      )
+    ) {
+      score += 25;
+    }
+  }
+
+  return score;
+};
+
+
+// ============================================================
+// Choose Better OCR Result
+// ============================================================
+
+const chooseBetterOCRResult = (
+  original,
+  refined,
+  fieldType
+) => {
+  const originalText =
+    normalizeTextForComparison(
+      original?.text
+    );
+
+  const refinedText =
+    normalizeTextForComparison(
+      refined?.text
+    );
+
+  if (!refinedText) {
+    return {
+      text:
+        originalText,
+      confidence:
+        original?.confidence ??
+        null,
+      source:
+        'first-pass',
+      improved: false
+    };
+  }
+
+  if (!originalText) {
+    return {
+      text:
+        refinedText,
+      confidence:
+        refined?.confidence ??
+        null,
+      source:
+        'second-pass',
+      improved: true
+    };
+  }
+
+  const originalScore =
+    scoreCandidate(
+      originalText,
+      original?.confidence,
+      fieldType
+    );
+
+  const refinedScore =
+    scoreCandidate(
+      refinedText,
+      refined?.confidence,
+      fieldType
+    );
+
+  const normalizedOriginal =
+    originalText
+      .replace(
+        /\s+/g,
+        ''
+      )
+      .toLowerCase();
+
+  const normalizedRefined =
+    refinedText
+      .replace(
+        /\s+/g,
+        ''
+      )
+      .toLowerCase();
+
+  const exactSame =
+    normalizedOriginal ===
+    normalizedRefined;
+
+  if (exactSame) {
+    return {
+      text:
+        originalText,
+      confidence:
+        Math.max(
+          original?.confidence ||
+            0,
+          refined?.confidence ||
+            0
+        ),
+      source:
+        'both-same',
+      improved: false
+    };
+  }
+
+  if (
+    refinedScore >
+    originalScore +
+      5
+  ) {
+    return {
+      text:
+        refinedText,
+      confidence:
+        refined?.confidence ??
+        null,
+      source:
+        'second-pass',
+      improved: true
+    };
+  }
+
+  if (
+    typeof refined?.confidence ===
+      'number' &&
+    typeof original?.confidence ===
+      'number' &&
+    refined.confidence >
+      original.confidence +
+        8
+  ) {
+    return {
+      text:
+        refinedText,
+      confidence:
+        refined.confidence,
+      source:
+        'second-pass',
+      improved: true
+    };
+  }
+
+  return {
+    text:
+      originalText,
+    confidence:
+      original?.confidence ??
+      null,
+    source:
+      'first-pass',
+    improved: false
+  };
+};
+
+
+// ============================================================
+// Run second OCR on one critical line
+// ============================================================
+
+const runCriticalLineReOCR = async (
+  ocr,
+  imageBlob,
+  line,
+  fieldType
+) => {
+  if (
+    !ocr ||
+    !imageBlob ||
+    !line
+  ) {
+    return {
+      original: {
+        text:
+          line?.text ||
+          '',
+        confidence:
+          line?.confidence ??
+          null
+      },
+      refined: null,
+      finalText:
+        line?.text ||
+        '',
+      finalConfidence:
+        line?.confidence ??
+        null,
+      source:
+        'first-pass',
+      improved: false
+    };
+  }
+
+  const crop =
+    await cropImageRegion(
+      imageBlob,
+      {
+        left:
+          line.left,
+        top:
+          line.top,
+        right:
+          line.right,
+        bottom:
+          line.bottom
+      },
+      {
+        horizontalPaddingRatio:
+          fieldType ===
+          'AMOUNT'
+            ? 0.16
+            : 0.12,
+        verticalPaddingRatio:
+          0.75,
+        scale: 2.2,
+        maxDimension:
+          1800
+      }
+    );
+
+  const results =
+    await ocr.predict(
+      crop.blob,
+      {
+        textDetLimitSideLen:
+          1800,
+
+        textDetLimitType:
+          'max',
+
+        /*
+         * 裁出来的小图已经放大过，笔画更粗，
+         * 检测阈值可以比整页稍微严一点，
+         * 但 unclip 仍然放宽，避免把 $ 号或末位数字切掉。
+         */
+        textDetThresh:
+          0.30,
+
+        textDetBoxThresh:
+          0.55,
+
+        textDetUnclipRatio:
+          2.2,
+
+        /*
+         * 二次 OCR 不要太宽松。
+         * 第一次 OCR 用 0.20 是为了“尽量别漏字”。
+         * 第二次则更强调质量。
+         */
+        textRecScoreThresh:
+          0.35
+      }
+    );
+
+  const result =
+    results?.[0];
+
+  const refined =
+    extractBestCropOCR(
+      result
+    );
+
+  const chosen =
+    chooseBetterOCRResult(
+      {
+        text:
+          line.text,
+        confidence:
+          line.confidence
+      },
+      refined,
+      fieldType
+    );
+
+  return {
+    original: {
+      text:
+        line.text,
+      confidence:
+        line.confidence ??
+        null
+    },
+
+    refined,
+
+    finalText:
+      chosen.text,
+
+    finalConfidence:
+      chosen.confidence,
+
+    source:
+      chosen.source,
+
+    improved:
+      chosen.improved,
+
+    fieldType,
+
+    cropSize: {
+      width:
+        crop.width,
+      height:
+        crop.height
+    }
+  };
+};
+
+
+// ============================================================
+// Refine Critical Lines Locally
+// ============================================================
+
+const refineCriticalOCRLines = async (
+  ocr,
+  imageBlob,
+  lines,
+  {
+    maxSecondPass = 12,
+    onProgress
+  } = {}
+) => {
+  const candidates =
+    (lines || [])
+      .map(
+        (line) => {
+          const fieldType =
+            getCriticalFieldType(
+              line.text
+            );
+
+          if (
+            !fieldType
+          ) {
+            return null;
+          }
+
+          return {
+            ...line,
+            fieldType,
+            criticalScore:
+              getCriticalPriority(
+                fieldType,
+                line.text,
+                line.confidence
+              )
+          };
+        }
+      )
+      .filter(Boolean)
+      .sort(
+        (a, b) =>
+          b.criticalScore -
+          a.criticalScore
+      );
+
+  const selected =
+    candidates.slice(
+      0,
+      maxSecondPass
+    );
+
+  const resultLines =
+    [...(lines || [])];
+
+  const stats = {
+    candidates:
+      candidates.length,
+    selected:
+      selected.length,
+    attempted: 0,
+    improved: 0,
+    unchanged: 0,
+    failed: 0
+  };
+
+  if (
+    typeof onProgress ===
+    'function'
+  ) {
+    onProgress(
+      0,
+      selected.length
+    );
+  }
+
+  for (
+    let i = 0;
+    i <
+    selected.length;
+    i += 1
+  ) {
+    const target =
+      selected[i];
+
+    const targetIndex =
+      resultLines.findIndex(
+        (line) =>
+          line.id ===
+          target.id
+      );
+
+    if (
+      targetIndex < 0
+    ) {
+      continue;
+    }
+
+    stats.attempted += 1;
+
+    try {
+      const refined =
+        await runCriticalLineReOCR(
+          ocr,
+          imageBlob,
+          target,
+          target.fieldType
+        );
+
+      resultLines[
+        targetIndex
+      ] = {
+        ...resultLines[
+          targetIndex
+        ],
+
+        originalTextBeforeRefinement:
+          resultLines[
+            targetIndex
+          ].text,
+
+        text:
+          refined.finalText,
+
+        confidence:
+          refined.finalConfidence,
+
+        refinement: {
+          fieldType:
+            refined.fieldType,
+
+          source:
+            refined.source,
+
+          improved:
+            refined.improved,
+
+          firstPass:
+            refined.original,
+
+          secondPass:
+            refined.refined,
+
+          cropSize:
+            refined.cropSize
+        }
+      };
+
+      if (
+        refined.improved
+      ) {
+        stats.improved +=
+          1;
+      } else {
+        stats.unchanged +=
+          1;
+      }
+    } catch (error) {
+      stats.failed +=
+        1;
+
+      console.warn(
+        '[OCR second-pass] Failed:',
+        target,
+        error
+      );
+    }
+
+    if (
+      typeof onProgress ===
+      'function'
+    ) {
+      onProgress(
+        i + 1,
+        selected.length
+      );
+    }
+  }
+
+  return {
+    lines:
+      resultLines,
+    stats
   };
 };
 
@@ -407,74 +2741,142 @@ export default function App() {
   // Core State
   // ==========================================================
 
-  const [imagePreview, setImagePreview] =
-    useState(null);
+  const [
+    imagePreview,
+    setImagePreview
+  ] = useState(null);
 
-  const [loading, setLoading] =
-    useState(false);
+  const [
+    loading,
+    setLoading
+  ] = useState(false);
 
-  const [loadingText, setLoadingText] =
-    useState('');
+  const [
+    loadingText,
+    setLoadingText
+  ] = useState('');
 
-  const [isScanning, setIsScanning] =
-    useState(false);
+  const [
+    isScanning,
+    setIsScanning
+  ] = useState(false);
 
-  const [showAnalysisResults, setShowAnalysisResults] =
-    useState(false);
+  const [
+    showAnalysisResults,
+    setShowAnalysisResults
+  ] = useState(false);
 
-  const [showCancelModal, setShowCancelModal] =
-    useState(false);
+  const [
+    showCancelModal,
+    setShowCancelModal
+  ] = useState(false);
 
-  const [error, setError] =
-    useState(null);
+  const [
+    error,
+    setError
+  ] = useState(null);
 
 
   // ==========================================================
   // OCR State
   // ==========================================================
 
-  const [ocrText, setOcrText] =
-    useState('');
+  const [
+    ocrText,
+    setOcrText
+  ] = useState('');
 
-  const [ocrWords, setOcrWords] =
-    useState([]);
+  const [
+    ocrLines,
+    setOcrLines
+  ] = useState([]);
 
-  const [ocrLines, setOcrLines] =
-    useState([]);
+  const [
+    ocrBlocks,
+    setOcrBlocks
+  ] = useState([]);
 
-  const [ocrConfidence, setOcrConfidence] =
-    useState(null);
+  const [
+    ocrConfidence,
+    setOcrConfidence
+  ] = useState(null);
 
-  const [ocrProgress, setOcrProgress] =
-    useState(0);
+  const [
+    ocrProgress,
+    setOcrProgress
+  ] = useState(0);
 
-  const [ocrRuntime, setOcrRuntime] =
-    useState(null);
+  const [
+    ocrRuntime,
+    setOcrRuntime
+  ] = useState(null);
 
-  const [ocrMetrics, setOcrMetrics] =
-    useState(null);
+  const [
+    ocrMetrics,
+    setOcrMetrics
+  ] = useState(null);
+
+  const [
+    ocrWorkerActive,
+    setOcrWorkerActive
+  ] = useState(null);
+
+  const [
+    ocrModelVersion,
+    setOcrModelVersion
+  ] = useState(null);
+
+  const [
+    imagePrepReport,
+    setImagePrepReport
+  ] = useState(null);
+
+  const [
+    letterFields,
+    setLetterFields
+  ] = useState(null);
+
+  const [
+    translatable,
+    setTranslatable
+  ] = useState(null);
+
+  const [
+    ocrSecondPassStats,
+    setOcrSecondPassStats
+  ] = useState(null);
 
 
   // ==========================================================
   // PII
   // ==========================================================
 
-  const [piiResults, setPiiResults] =
-    useState([]);
+  const [
+    piiResults,
+    setPiiResults
+  ] = useState([]);
 
-  const [redactedOcrText, setRedactedOcrText] =
-    useState('');
+  const [
+    redactedOcrText,
+    setRedactedOcrText
+  ] = useState('');
 
 
   // ==========================================================
   // Camera
   // ==========================================================
 
-  const [isCameraActive, setIsCameraActive] =
-    useState(false);
+  const [
+    isCameraActive,
+    setIsCameraActive
+  ] = useState(false);
 
-  const [facingMode, setFacingMode] =
-    useState('environment');
+  const [
+    facingMode,
+    setFacingMode
+  ] = useState(
+    'environment'
+  );
 
 
   // ==========================================================
@@ -507,8 +2909,13 @@ export default function App() {
   // Safe State Helpers
   // ==========================================================
 
-  const safeSet = (setter, value) => {
-    if (mountedRef.current) {
+  const safeSet = (
+    setter,
+    value
+  ) => {
+    if (
+      mountedRef.current
+    ) {
       setter(value);
     }
   };
@@ -518,15 +2925,19 @@ export default function App() {
   // Object URL Cleanup
   // ==========================================================
 
-  const revokePreviewUrl = () => {
-    if (imagePreviewUrlRef.current) {
-      URL.revokeObjectURL(
+  const revokePreviewUrl =
+    () => {
+      if (
         imagePreviewUrlRef.current
-      );
+      ) {
+        URL.revokeObjectURL(
+          imagePreviewUrlRef.current
+        );
 
-      imagePreviewUrlRef.current = null;
-    }
-  };
+        imagePreviewUrlRef.current =
+          null;
+      }
+    };
 
 
   // ==========================================================
@@ -534,18 +2945,26 @@ export default function App() {
   // ==========================================================
 
   const stopCamera = () => {
-    if (streamRef.current) {
+    if (
+      streamRef.current
+    ) {
       streamRef.current
         .getTracks()
-        .forEach((track) => {
-          track.stop();
-        });
+        .forEach(
+          (track) => {
+            track.stop();
+          }
+        );
 
-      streamRef.current = null;
+      streamRef.current =
+        null;
     }
 
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
+    if (
+      videoRef.current
+    ) {
+      videoRef.current.srcObject =
+        null;
     }
 
     safeSet(
@@ -559,45 +2978,84 @@ export default function App() {
   // Initialize PaddleOCR
   // ==========================================================
 
-  const getOCREngine = async () => {
-    if (ocrEngineRef.current) {
-      return ocrEngineRef.current;
-    }
-
-    if (ocrInitializingRef.current) {
-      while (
-        ocrInitializingRef.current &&
-        !ocrEngineRef.current &&
-        mountedRef.current
+  const getOCREngine =
+    async () => {
+      if (
+        ocrEngineRef.current
       ) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, 100)
-        );
+        return ocrEngineRef.current;
       }
 
-      return ocrEngineRef.current;
-    }
+      if (
+        ocrInitializingRef.current
+      ) {
+        const maxWaitMs =
+          20000;
 
-    ocrInitializingRef.current = true;
+        let waited = 0;
 
-    try {
-      safeSet(
-        setLoadingText,
-        '正在准备本地 PaddleOCR...'
-      );
+        while (
+          ocrInitializingRef.current &&
+          !ocrEngineRef.current &&
+          mountedRef.current
+        ) {
+          await new Promise(
+            (resolve) =>
+              setTimeout(
+                resolve,
+                100
+              )
+          );
 
-      safeSet(
-        setOcrProgress,
-        5
-      );
+          waited +=
+            100;
 
-      const ocr =
-        await PaddleOCR.create({
-          lang: 'ch',
-          ocrVersion: 'PP-OCRv5',
+          if (
+            waited >=
+            maxWaitMs
+          ) {
+            throw new Error(
+              'PaddleOCR 初始化超时，请刷新页面重试。'
+            );
+          }
+        }
 
-          // Run inference in Worker
-          worker: true,
+        return ocrEngineRef.current;
+      }
+
+      ocrInitializingRef.current =
+        true;
+
+      try {
+        safeSet(
+          setLoadingText,
+          '正在准备本地 PaddleOCR...'
+        );
+
+        safeSet(
+          setOcrProgress,
+          5
+        );
+
+        /*
+         * 模型选择
+         *
+         * 原来写死 ocrVersion: 'PP-OCRv5'，
+         * 而 lang: 'en' 在 v5 下会映射到 PP-OCRv5_mobile
+         * —— 是这套里最小、最省算力、也最不准的一档。
+         *
+         * PP-OCRv6 会映射到 PP-OCRv6_small，
+         * 在英文账单/政府信函这种印刷体上明显更稳。
+         *
+         * 万一某个浏览器或网络环境拿不到 v6 模型，
+         * 会自动回落到 v5，功能绝不中断。
+         */
+        const buildConfig = (
+          ocrVersion
+        ) => ({
+          lang: 'en',
+
+          ocrVersion,
 
           ortOptions: {
             backend: 'auto',
@@ -606,45 +3064,149 @@ export default function App() {
           }
         });
 
-      if (
-        ocrCancelledRef.current ||
-        !mountedRef.current
-      ) {
-        await ocr.dispose();
-        return null;
+        /*
+         * 依次尝试：
+         *   v6 + worker
+         *   v6 + 主线程
+         *   v5 + worker
+         *   v5 + 主线程
+         */
+        const attempts = [
+          {
+            version: 'PP-OCRv6',
+            worker: true
+          },
+          {
+            version: 'PP-OCRv6',
+            worker: false
+          },
+          {
+            version: 'PP-OCRv5',
+            worker: true
+          },
+          {
+            version: 'PP-OCRv5',
+            worker: false
+          }
+        ];
+
+        let ocr = null;
+
+        let workerActuallyUsed =
+          true;
+
+        let activeVersion =
+          'PP-OCRv6';
+
+        let lastInitError =
+          null;
+
+        for (
+          let i = 0;
+          i < attempts.length;
+          i += 1
+        ) {
+          const attempt =
+            attempts[i];
+
+          try {
+            ocr =
+              await PaddleOCR.create(
+                {
+                  ...buildConfig(
+                    attempt.version
+                  ),
+                  worker:
+                    attempt.worker
+                }
+              );
+
+            workerActuallyUsed =
+              attempt.worker;
+
+            activeVersion =
+              attempt.version;
+
+            break;
+          } catch (
+            attemptErr
+          ) {
+            lastInitError =
+              attemptErr;
+
+            console.warn(
+              '[PaddleOCR] 初始化失败，尝试下一种组合：',
+              attempt.version,
+              'worker:',
+              attempt.worker,
+              attemptErr
+            );
+          }
+        }
+
+        if (!ocr) {
+          throw (
+            lastInitError ||
+            new Error(
+              'PaddleOCR 初始化失败'
+            )
+          );
+        }
+
+        safeSet(
+          setOcrModelVersion,
+          activeVersion
+        );
+
+        if (
+          ocrCancelledRef.current ||
+          !mountedRef.current
+        ) {
+          await ocr.dispose();
+
+          return null;
+        }
+
+        ocrEngineRef.current =
+          ocr;
+
+        safeSet(
+          setOcrWorkerActive,
+          workerActuallyUsed
+        );
+
+        safeSet(
+          setOcrProgress,
+          15
+        );
+
+        safeSet(
+          setLoadingText,
+          '本地 PaddleOCR 已准备完成'
+        );
+
+        console.log(
+          '[PaddleOCR] Initialized',
+          ocr,
+          'worker:',
+          workerActuallyUsed
+        );
+
+        return ocr;
+      } catch (err) {
+        console.error(
+          '[PaddleOCR] Initialization failed:',
+          err
+        );
+
+        throw new Error(
+          'PaddleOCR 本地引擎启动失败，请刷新页面后重新尝试。'
+        );
+      } finally {
+        ocrInitializingRef.current =
+          false;
       }
-
-      ocrEngineRef.current = ocr;
-
-      safeSet(
-        setOcrProgress,
-        15
-      );
-
-      safeSet(
-        setLoadingText,
-        '本地 PaddleOCR 已准备完成'
-      );
-
-      console.log(
-        '[PaddleOCR] Initialized',
-        ocr
-      );
-
-      return ocr;
-    } catch (err) {
-      console.error(
-        '[PaddleOCR] Initialization failed:',
-        err
-      );
-
-      throw new Error(
-        'PaddleOCR 本地引擎启动失败，请刷新页面后重新尝试。'
-      );
-    } finally {
-      ocrInitializingRef.current = false;
-    }
-  };
+    };
 
 
   // ==========================================================
@@ -652,23 +3214,29 @@ export default function App() {
   // ==========================================================
 
   useEffect(() => {
-    mountedRef.current = true;
+    mountedRef.current =
+      true;
 
     return () => {
-      mountedRef.current = false;
+      mountedRef.current =
+        false;
 
       revokePreviewUrl();
 
       stopCamera();
 
-      ocrCancelledRef.current = true;
+      ocrCancelledRef.current =
+        true;
 
-      if (ocrEngineRef.current) {
+      if (
+        ocrEngineRef.current
+      ) {
         ocrEngineRef.current
           .dispose()
           .catch(() => {});
 
-        ocrEngineRef.current = null;
+        ocrEngineRef.current =
+          null;
       }
     };
   }, []);
@@ -679,31 +3247,59 @@ export default function App() {
   // ==========================================================
 
   const handleClose = () => {
-    ocrCancelledRef.current = true;
+    ocrCancelledRef.current =
+      true;
 
     revokePreviewUrl();
 
     stopCamera();
 
     setImagePreview(null);
+
     setError(null);
 
     setLoading(false);
+
     setLoadingText('');
 
     setIsScanning(false);
-    setShowAnalysisResults(false);
-    setShowCancelModal(false);
+
+    setShowAnalysisResults(
+      false
+    );
+
+    setShowCancelModal(
+      false
+    );
 
     setOcrText('');
-    setOcrWords([]);
+
     setOcrLines([]);
-    setOcrConfidence(null);
+
+    setOcrBlocks([]);
+
+    setOcrConfidence(
+      null
+    );
+
     setOcrProgress(0);
+
     setOcrRuntime(null);
+
     setOcrMetrics(null);
 
+    setOcrSecondPassStats(
+      null
+    );
+
+    setImagePrepReport(null);
+
+    setLetterFields(null);
+
+    setTranslatable(null);
+
     setPiiResults([]);
+
     setRedactedOcrText('');
   };
 
@@ -712,133 +3308,172 @@ export default function App() {
   // Request Close
   // ==========================================================
 
-  const handleRequestClose = () => {
-    if (loading || isScanning) {
-      setShowCancelModal(true);
-    } else {
-      handleClose();
-    }
-  };
+  const handleRequestClose =
+    () => {
+      if (
+        loading ||
+        isScanning
+      ) {
+        setShowCancelModal(
+          true
+        );
+      } else {
+        handleClose();
+      }
+    };
 
 
   // ==========================================================
   // Confirm Cancel
   // ==========================================================
 
-  const handleConfirmCancel = () => {
-    ocrCancelledRef.current = true;
+  const handleConfirmCancel =
+    () => {
+      ocrCancelledRef.current =
+        true;
 
-    setShowCancelModal(false);
+      setShowCancelModal(
+        false
+      );
 
-    handleClose();
-  };
+      handleClose();
+    };
 
 
   // ==========================================================
   // Resume
   // ==========================================================
 
-  const handleResumeScan = () => {
-    setShowCancelModal(false);
-  };
+  const handleResumeScan =
+    () => {
+      setShowCancelModal(
+        false
+      );
+    };
 
 
   // ==========================================================
   // Camera
   // ==========================================================
 
-  const startCamera = async (
-    targetMode = facingMode
-  ) => {
-    setError(null);
+  const startCamera =
+    async (
+      targetMode = facingMode
+    ) => {
+      setError(null);
 
-    stopCamera();
+      stopCamera();
 
-    if (
-      !navigator.mediaDevices ||
-      !navigator.mediaDevices.getUserMedia
-    ) {
-      setError(
-        '您的浏览器暂时无法打开摄像头，请使用手机相册选择照片。'
-      );
-
-      return;
-    }
-
-    try {
-      let stream;
-
-      try {
-        stream =
-          await navigator.mediaDevices.getUserMedia({
-            video: {
-              facingMode: {
-                exact: targetMode
-              }
-            },
-            audio: false
-          });
-      } catch {
-        // Fallback for browsers that reject
-        // exact facingMode.
-        stream =
-          await navigator.mediaDevices.getUserMedia({
-            video: {
-              facingMode: targetMode
-            },
-            audio: false
-          });
-      }
-
-      if (!mountedRef.current) {
-        stream
-          .getTracks()
-          .forEach((track) => track.stop());
+      if (
+        !navigator.mediaDevices ||
+        !navigator.mediaDevices
+          .getUserMedia
+      ) {
+        setError(
+          '您的浏览器暂时无法打开摄像头，请使用手机相册选择照片。'
+        );
 
         return;
       }
 
-      streamRef.current = stream;
+      try {
+        let stream;
 
-      setFacingMode(targetMode);
-      setIsCameraActive(true);
-
-      // Attach after React renders <video>
-      requestAnimationFrame(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject =
-            stream;
-
-          videoRef.current
-            .play()
-            .catch(() => {});
+        try {
+          stream =
+            await navigator.mediaDevices.getUserMedia(
+              {
+                video: {
+                  facingMode: {
+                    exact:
+                      targetMode
+                  }
+                },
+                audio: false
+              }
+            );
+        } catch {
+          stream =
+            await navigator.mediaDevices.getUserMedia(
+              {
+                video: {
+                  facingMode:
+                    targetMode
+                },
+                audio: false
+              }
+            );
         }
-      });
-    } catch (err) {
-      console.error(
-        '[Camera] Access failed:',
-        err
-      );
 
-      setError(
-        '无法打开摄像头。请检查浏览器的摄像头权限，或者直接从手机相册选择照片。'
-      );
-    }
-  };
+        if (
+          !mountedRef.current
+        ) {
+          stream
+            .getTracks()
+            .forEach(
+              (track) =>
+                track.stop()
+            );
+
+          return;
+        }
+
+        streamRef.current =
+          stream;
+
+        setFacingMode(
+          targetMode
+        );
+
+        setIsCameraActive(
+          true
+        );
+
+        requestAnimationFrame(
+          () => {
+            if (
+              videoRef.current
+            ) {
+              videoRef.current.srcObject =
+                stream;
+
+              videoRef.current
+                .play()
+                .catch(
+                  () => {}
+                );
+            }
+          }
+        );
+      } catch (err) {
+        console.error(
+          '[Camera] Access failed:',
+          err
+        );
+
+        setError(
+          '无法打开摄像头。请检查浏览器的摄像头权限，或者直接从手机相册选择照片。'
+        );
+      }
+    };
 
 
   // ==========================================================
   // Toggle Camera
   // ==========================================================
 
-  const toggleCameraFacing = () => {
-    const nextMode =
-      facingMode === 'environment'
-        ? 'user'
-        : 'environment';
+  const toggleCameraFacing =
+    () => {
+      const nextMode =
+        facingMode ===
+        'environment'
+          ? 'user'
+          : 'environment';
 
-    startCamera(nextMode);
-  };
+      startCamera(
+        nextMode
+      );
+    };
 
 
   // ==========================================================
@@ -846,7 +3481,8 @@ export default function App() {
   // ==========================================================
 
   const capturePhoto = () => {
-    const video = videoRef.current;
+    const video =
+      videoRef.current;
 
     if (!video) {
       setError(
@@ -857,19 +3493,28 @@ export default function App() {
     }
 
     const width =
-      video.videoWidth || 1920;
+      video.videoWidth ||
+      1920;
 
     const height =
-      video.videoHeight || 1080;
+      video.videoHeight ||
+      1080;
 
     const canvas =
-      document.createElement('canvas');
+      document.createElement(
+        'canvas'
+      );
 
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width =
+      width;
+
+    canvas.height =
+      height;
 
     const ctx =
-      canvas.getContext('2d');
+      canvas.getContext(
+        '2d'
+      );
 
     if (!ctx) {
       setError(
@@ -879,9 +3524,19 @@ export default function App() {
       return;
     }
 
-    if (facingMode === 'user') {
-      ctx.translate(width, 0);
-      ctx.scale(-1, 1);
+    if (
+      facingMode ===
+      'user'
+    ) {
+      ctx.translate(
+        width,
+        0
+      );
+
+      ctx.scale(
+        -1,
+        1
+      );
     }
 
     ctx.drawImage(
@@ -895,7 +3550,9 @@ export default function App() {
     stopCamera();
 
     canvas.toBlob(
-      async (blob) => {
+      async (
+        blob
+      ) => {
         if (!blob) {
           setError(
             '拍照失败，请重新拍一张。'
@@ -909,11 +3566,14 @@ export default function App() {
             [blob],
             'captured_letter.jpg',
             {
-              type: 'image/jpeg'
+              type:
+                'image/jpeg'
             }
           );
 
-        await handleProcessFile(file);
+        await handleProcessFile(
+          file
+        );
       },
       'image/jpeg',
       0.94
@@ -925,451 +3585,582 @@ export default function App() {
   // Local Image Processing
   // ==========================================================
 
-  const processImagePrivacy = async (
-    file
-  ) => {
-    setLoadingText(
-      '正在本地处理照片，请稍候...'
-    );
-
-    let imageFile = file;
-
-    // --------------------------------------------------------
-    // HEIC → JPEG
-    // --------------------------------------------------------
-
-    if (
-      file.type === 'image/heic' ||
-      file.type === 'image/heif' ||
-      file.name
-        .toLowerCase()
-        .endsWith('.heic') ||
-      file.name
-        .toLowerCase()
-        .endsWith('.heif')
-    ) {
-      const convertedBlob =
-        await heic2any({
-          blob: file,
-          toType: 'image/jpeg',
-          quality: 0.92
-        });
-
-      imageFile =
-        Array.isArray(convertedBlob)
-          ? convertedBlob[0]
-          : convertedBlob;
-    }
-
-    // --------------------------------------------------------
-    // Read image
-    // --------------------------------------------------------
-
-    const img = new Image();
-
-    const objectUrl =
-      URL.createObjectURL(imageFile);
-
-    try {
-      await new Promise(
-        (resolve, reject) => {
-          img.onload = resolve;
-
-          img.onerror = () =>
-            reject(
-              new Error(
-                '图片格式不受支持或文件损坏。'
-              )
-            );
-
-          img.src = objectUrl;
-        }
-      );
-    } finally {
-      URL.revokeObjectURL(objectUrl);
-    }
-
-    // --------------------------------------------------------
-    // Resize
-    // --------------------------------------------------------
-
-    const maxDimension = 2200;
-
-    let width = img.naturalWidth || img.width;
-    let height = img.naturalHeight || img.height;
-
-    if (
-      width > maxDimension ||
-      height > maxDimension
-    ) {
-      if (width >= height) {
-        height =
-          Math.round(
-            (height * maxDimension) /
-              width
-          );
-
-        width = maxDimension;
-      } else {
-        width =
-          Math.round(
-            (width * maxDimension) /
-              height
-          );
-
-        height = maxDimension;
-      }
-    }
-
-    const canvas =
-      document.createElement('canvas');
-
-    canvas.width = width;
-    canvas.height = height;
-
-    const ctx =
-      canvas.getContext('2d');
-
-    if (!ctx) {
-      throw new Error(
-        '照片处理失败，请重新尝试。'
-      );
-    }
-
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-
-    ctx.drawImage(
-      img,
-      0,
-      0,
-      width,
-      height
-    );
-
-    // --------------------------------------------------------
-    // JPEG
-    // --------------------------------------------------------
-
-    const blob =
-      await new Promise(
-        (resolve, reject) => {
-          canvas.toBlob(
-            (result) => {
-              if (result) {
-                resolve(result);
-              } else {
-                reject(
-                  new Error(
-                    '照片处理失败，请重新尝试。'
-                  )
-                );
-              }
-            },
-            'image/jpeg',
-            0.92
-          );
-        }
+  const processImagePrivacy =
+    async (
+      file
+    ) => {
+      setLoadingText(
+        '正在本地处理照片，请稍候...'
       );
 
-    revokePreviewUrl();
+      let imageFile =
+        file;
 
-    const previewUrl =
-      URL.createObjectURL(blob);
+      if (
+        file.type ===
+          'image/heic' ||
+        file.type ===
+          'image/heif' ||
+        file.name
+          .toLowerCase()
+          .endsWith(
+            '.heic'
+          ) ||
+        file.name
+          .toLowerCase()
+          .endsWith(
+            '.heif'
+          )
+      ) {
+        const convertedBlob =
+          await heic2any(
+            {
+              blob: file,
+              toType:
+                'image/jpeg',
+              quality:
+                0.92
+            }
+          );
 
-    imagePreviewUrlRef.current =
-      previewUrl;
-
-    setImagePreview(previewUrl);
-
-    return {
-      blob,
-      previewUrl
-    };
-  };
-
-
-  // ==========================================================
-  // Extract PaddleOCR Structure
-  // ==========================================================
-
-  const extractPaddleOCRStructure = (
-    ocrResult
-  ) => {
-    const items =
-      Array.isArray(ocrResult?.items)
-        ? ocrResult.items
-        : [];
-
-    const lines = [];
-    const words = [];
-
-    items.forEach((item) => {
-      const text =
-        typeof item?.text === 'string'
-          ? item.text
-          : '';
-
-      if (!text.trim()) {
-        return;
+        imageFile =
+          Array.isArray(
+            convertedBlob
+          )
+            ? convertedBlob[0]
+            : convertedBlob;
       }
 
-      const score =
-        typeof item?.score === 'number'
-          ? item.score
-          : null;
+      /*
+       * ==================================================
+       * 本地文档图像预处理
+       *
+       * 以前这里只做了两件事：
+       *   1. 缩放到长边 2200
+       *   2. 重新编码成 JPEG 0.92
+       *
+       * 也就是说，老人拿手机拍的信 —— 透视变形、纸面弯曲、
+       * 台灯阴影、低对比度 —— 全部原封不动地喂给了 OCR。
+       * 这是识别错字的第一大来源。
+       *
+       * PP-StructureV3 里负责干这件事的是 doc-preprocessor
+       * （文档方向分类 + 文档矫正），但 paddleocr-js 浏览器包
+       * 只打包了 det + rec，没有这个模块。
+       * utils/imagePrep.js 就是在浏览器里把它补回来：
+       *
+       *   纸张四角检测 -> 透视矫正
+       *   投影剖面法    -> 去斜
+       *   底色场估计    -> 去阴影 / 光照归一化
+       *   百分位拉伸    -> 对比度增强 + 轻度锐化
+       *
+       * 全部在本地内存完成，原图依然不会离开浏览器。
+       * 每一步都有置信度闸门，判断不可靠就跳过，
+       * 整体失败则回退到「只缩放」的旧行为。
+       * ==================================================
+       */
 
-      const normalized = {
-        text,
-        confidence:
-          score !== null
-            ? score * 100
-            : null,
-        bbox: item?.poly || null
+      const prepared =
+        await enhanceDocumentImage(
+          imageFile,
+          {
+            maxDimension:
+              2200,
+
+            onStage: (
+              _stage,
+              text
+            ) => {
+              setLoadingText(
+                text
+              );
+            }
+          }
+        );
+
+      setImagePrepReport(
+        prepared.report
+      );
+
+      console.log(
+        '[imagePrep] 预处理结果：',
+        prepared.report
+      );
+
+      revokePreviewUrl();
+
+      /*
+       * 预览用彩色图（只做了几何矫正），
+       * OCR 用灰度增强图。
+       * 两张图几何完全一致，
+       * 所以 OCR 返回的坐标以后可以直接画在预览上。
+       */
+      const previewUrl =
+        URL.createObjectURL(
+          prepared.displayBlob
+        );
+
+      imagePreviewUrlRef.current =
+        previewUrl;
+
+      setImagePreview(
+        previewUrl
+      );
+
+      return {
+        blob:
+          prepared.ocrBlob,
+
+        displayBlob:
+          prepared.displayBlob,
+
+        previewUrl,
+
+        width:
+          prepared.width,
+
+        height:
+          prepared.height,
+
+        report:
+          prepared.report
       };
-
-      // PaddleOCR returns recognized
-      // text lines rather than individual words.
-      lines.push(normalized);
-      words.push(normalized);
-    });
-
-    return {
-      words,
-      lines
     };
-  };
 
 
   // ==========================================================
   // Run Local OCR
   // ==========================================================
 
-  const runLocalOCR = async (
-    imageBlob
-  ) => {
-    ocrCancelledRef.current = false;
+  const runLocalOCR =
+    async (
+      imageBlob
+    ) => {
+      ocrCancelledRef.current =
+        false;
 
-    setOcrProgress(15);
-
-    setLoadingText(
-      '正在本地读取信件文字...'
-    );
-
-    try {
-      const ocr =
-        await getOCREngine();
-
-      if (
-        !ocr ||
-        ocrCancelledRef.current
-      ) {
-        return null;
-      }
-
-      setOcrProgress(25);
-
-      setLoadingText(
-        'PaddleOCR 正在检测信件文字位置...'
+      setOcrProgress(
+        15
       );
 
-      const results =
-        await ocr.predict(
-          imageBlob,
-          {
-            textDetLimitSideLen: 1600,
-            textDetLimitType: 'max',
-            textRecScoreThresh: 0.25
-          }
-        );
-
-      if (
-        ocrCancelledRef.current
-      ) {
-        return null;
-      }
-
-      setOcrProgress(85);
-
       setLoadingText(
-        '正在整理本地 OCR 结果...'
+        '正在本地读取信件文字...'
       );
 
-      const result =
-        results?.[0];
+      try {
+        const ocr =
+          await getOCREngine();
 
-      if (!result) {
-        throw new Error(
-          'PaddleOCR 没有返回识别结果。'
+        if (
+          !ocr ||
+          ocrCancelledRef.current
+        ) {
+          return null;
+        }
+
+        setOcrProgress(
+          25
         );
-      }
 
-      const {
-        words,
-        lines
-      } =
-        extractPaddleOCRStructure(
+        setLoadingText(
+          'PaddleOCR 正在检测信件文字位置...'
+        );
+
+        const results =
+          await ocr.predict(
+            imageBlob,
+            {
+              textDetLimitSideLen:
+                2200,
+
+              textDetLimitType:
+                'max',
+
+              /*
+               * 检测阈值调优
+               *
+               * 账单上的金额、到期日常常是贴边小字，
+               * 默认的 unclip ratio 偏紧，容易把 '$' 或末位数字
+               * 切在框外，识别出来就少一位。
+               *
+               * textDetUnclipRatio 调大 = 文字框向外扩，
+               * 宁可多框一点空白，也不要切字。
+               * textDetBoxThresh 略降 = 别丢掉浅色/小号的行。
+               */
+              textDetThresh:
+                0.28,
+
+              textDetBoxThresh:
+                0.50,
+
+              textDetUnclipRatio:
+                2.2,
+
+              /*
+               * 第一遍：
+               * 尽量不要漏掉低置信度字符。
+               */
+              textRecScoreThresh:
+                0.20
+            }
+          );
+
+        if (
+          ocrCancelledRef.current
+        ) {
+          return null;
+        }
+
+        setOcrProgress(
+          65
+        );
+
+        setLoadingText(
+          '正在分析文字位置和关键字段...'
+        );
+
+        const result =
+          results?.[0];
+
+        if (!result) {
+          throw new Error(
+            'PaddleOCR 没有返回识别结果。'
+          );
+        }
+
+        const {
+          lines:
+            firstPassLines,
+          blocks:
+            firstPassBlocks,
+          rawLines
+        } =
+          extractPaddleOCRStructure(
+            result
+          );
+
+        // ------------------------------------------------------
+        // Second local OCR pass
+        // ------------------------------------------------------
+
+        setLoadingText(
+          '正在对金额、日期和账号等关键区域进行本地二次识别...'
+        );
+
+        const secondPass =
+          await refineCriticalOCRLines(
+            ocr,
+            imageBlob,
+            firstPassLines,
+            {
+              maxSecondPass:
+                12,
+
+              onProgress:
+                (
+                  current,
+                  total
+                ) => {
+                  const ratio =
+                    total
+                      ? current /
+                        total
+                      : 0;
+
+                  setOcrProgress(
+                    Math.round(
+                      65 +
+                        ratio *
+                          25
+                    )
+                  );
+                }
+            }
+          );
+
+        if (
+          ocrCancelledRef.current
+        ) {
+          return null;
+        }
+
+        setOcrProgress(
+          92
+        );
+
+        setLoadingText(
+          '正在重新整理最终阅读顺序...'
+        );
+
+        /*
+         * 二次 OCR 改过文字后，
+         * bbox 没有改变，所以可以直接再次排序/建 blocks。
+         */
+        const orderedFinalLines =
+          buildSpatialReadingOrder(
+            secondPass.lines
+          );
+
+        const finalLines =
+          orderedFinalLines.map(
+            (line, index) => ({
+              ...line,
+              readingOrder:
+                index + 1
+            })
+          );
+
+        const finalBlocks =
+          buildOCRBlocks(
+            finalLines
+          );
+
+        const text =
+          finalLines
+            .map(
+              (line) =>
+                line.text
+            )
+            .join('\n');
+
+        const scores =
+          finalLines
+            .map(
+              (line) =>
+                line.confidence
+            )
+            .filter(
+              (value) =>
+                typeof value ===
+                'number'
+            );
+
+        const confidence =
+          scores.length
+            ? scores.reduce(
+                (
+                  sum,
+                  value
+                ) =>
+                  sum +
+                  value,
+                0
+              ) /
+              scores.length
+            : null;
+
+        const metrics =
+          result?.metrics ||
+          null;
+
+        const runtime =
+          result?.runtime ||
+          null;
+
+        console.group(
+          '[PaddleOCR] Local OCR V5'
+        );
+
+        console.log(
+          'Raw result:',
           result
         );
 
-      const text =
-        lines
-          .map((line) => line.text)
-          .join('\n');
+        console.log(
+          'Raw OCR lines:',
+          rawLines
+        );
 
-      const scores =
-        lines
-          .map(
-            (line) =>
-              line.confidence
-          )
-          .filter(
-            (value) =>
-              typeof value ===
-              'number'
-          );
+        console.log(
+          'First-pass lines:',
+          firstPassLines
+        );
 
-      const confidence =
-        scores.length
-          ? scores.reduce(
-              (sum, value) =>
-                sum + value,
-              0
-            ) / scores.length
-          : null;
+        console.log(
+          'Second-pass stats:',
+          secondPass.stats
+        );
 
-      const metrics =
-        result?.metrics || null;
+        console.log(
+          'Final lines:',
+          finalLines
+        );
 
-      const runtime =
-        result?.runtime || null;
+        console.log(
+          'Final blocks:',
+          finalBlocks
+        );
 
-      console.group(
-        '[PaddleOCR] Local OCR'
-      );
+        console.log(
+          'Final text:',
+          text
+        );
 
-      console.log(
-        'Raw result:',
-        result
-      );
+        console.log(
+          'Final confidence:',
+          confidence
+        );
 
-      console.log(
-        'Text:',
-        text
-      );
+        console.log(
+          'Metrics:',
+          metrics
+        );
 
-      console.log(
-        'Items:',
-        result.items
-      );
+        console.log(
+          'Runtime:',
+          runtime
+        );
 
-      console.log(
-        'Confidence:',
-        confidence
-      );
+        console.groupEnd();
 
-      console.log(
-        'Metrics:',
-        metrics
-      );
+        setOcrText(
+          text
+        );
 
-      console.log(
-        'Runtime:',
-        runtime
-      );
+        setOcrLines(
+          finalLines
+        );
 
-      console.groupEnd();
+        setOcrBlocks(
+          finalBlocks
+        );
 
-      setOcrText(text);
-      setOcrWords(words);
-      setOcrLines(lines);
-      setOcrConfidence(confidence);
-      setOcrRuntime(runtime);
-      setOcrMetrics(metrics);
-      setOcrProgress(100);
+        setOcrConfidence(
+          confidence
+        );
 
-      return {
-        text,
-        words,
-        lines,
-        blocks: [],
-        confidence,
-        metrics,
-        runtime
-      };
-    } catch (err) {
-      console.error(
-        '[OCR] Local PaddleOCR failed:',
-        err
-      );
+        setOcrRuntime(
+          runtime
+        );
 
-      if (
-        ocrCancelledRef.current
-      ) {
-        return null;
+        setOcrMetrics(
+          metrics
+        );
+
+        setOcrSecondPassStats(
+          secondPass.stats
+        );
+
+        setOcrProgress(
+          100
+        );
+
+        return {
+          text,
+          lines:
+            finalLines,
+          blocks:
+            finalBlocks,
+          rawLines,
+          confidence,
+          metrics,
+          runtime,
+          secondPassStats:
+            secondPass.stats,
+          imageBlob
+        };
+      } catch (err) {
+        console.error(
+          '[OCR] Local PaddleOCR failed:',
+          err
+        );
+
+        if (
+          ocrCancelledRef.current
+        ) {
+          return null;
+        }
+
+        throw new Error(
+          '本地 PaddleOCR 文字识别失败，请重新拍一张照片。'
+        );
       }
-
-      throw new Error(
-        '本地 PaddleOCR 文字识别失败，请重新拍一张照片。'
-      );
-    }
-  };
+    };
 
 
   // ==========================================================
   // Associate PII with OCR Lines
   // ==========================================================
 
-  const associatePIIWithOCRLines = (
-    detections,
-    words
-  ) => {
-    return detections.map(
-      (detection) => {
-        const detectionValue =
-          String(
-            detection?.value || ''
-          )
-            .trim()
-            .toLowerCase();
+  const buildLineOffsetMap =
+    (lines) => {
+      const map = [];
 
-        if (!detectionValue) {
-          return {
-            ...detection,
-            relatedWords: []
-          };
-        }
+      let cursor = 0;
 
-        const relatedWords =
-          words.filter((word) => {
-            const wordText =
-              String(
-                word?.text || ''
-              )
-                .trim()
-                .toLowerCase();
+      lines.forEach(
+        (line) => {
+          const start =
+            cursor;
 
-            if (!wordText) {
-              return false;
-            }
-
-            return (
-              detectionValue.includes(
-                wordText
-              ) ||
-              wordText.includes(
-                detectionValue
-              )
+          const end =
+            start +
+            (
+              line?.text
+                ?.length ||
+              0
             );
+
+          map.push({
+            line,
+            start,
+            end
           });
 
-        return {
-          ...detection,
-          relatedWords
-        };
-      }
-    );
-  };
+          cursor =
+            end + 1;
+        }
+      );
+
+      return map;
+    };
+
+
+  const associatePIIWithOCRLines =
+    (
+      detections,
+      lines
+    ) => {
+      const lineOffsetMap =
+        buildLineOffsetMap(
+          lines || []
+        );
+
+      return detections.map(
+        (detection) => {
+          const hasOffsets =
+            typeof detection.start ===
+              'number' &&
+            typeof detection.end ===
+              'number';
+
+          const relatedWords =
+            hasOffsets
+              ? lineOffsetMap
+                  .filter(
+                    ({
+                      start,
+                      end
+                    }) =>
+                      detection.start <
+                        end &&
+                      start <
+                        detection.end
+                  )
+                  .map(
+                    ({
+                      line
+                    }) =>
+                      line
+                  )
+              : [];
+
+          return {
+            ...detection,
+            relatedWords
+          };
+        }
+      );
+    };
 
 
   // ==========================================================
@@ -1379,7 +4170,7 @@ export default function App() {
   const runLocalPIIDetection =
     async (
       text,
-      words = []
+      lines = []
     ) => {
       setLoadingText(
         '正在本地检查可能的个人信息...'
@@ -1390,7 +4181,10 @@ export default function App() {
         !text.trim()
       ) {
         setPiiResults([]);
-        setRedactedOcrText('');
+
+        setRedactedOcrText(
+          ''
+        );
 
         return {
           detections: [],
@@ -1403,12 +4197,14 @@ export default function App() {
           detections,
           redactedText
         } =
-          detectLocalPII(text);
+          detectLocalPII(
+            text
+          );
 
         const detectionsWithWords =
           associatePIIWithOCRLines(
             detections,
-            words
+            lines
           );
 
         console.group(
@@ -1468,44 +4264,74 @@ export default function App() {
   // ==========================================================
 
   const handleProcessFile =
-    async (file) => {
+    async (
+      file
+    ) => {
       if (!file) {
         return;
       }
 
-      // New operation
       ocrCancelledRef.current =
         false;
 
       setError(null);
 
       setOcrText('');
-      setOcrWords([]);
+
       setOcrLines([]);
-      setOcrConfidence(null);
-      setOcrProgress(0);
+
+      setOcrBlocks([]);
+
+      setOcrConfidence(
+        null
+      );
+
+      setOcrProgress(
+        0
+      );
+
       setOcrRuntime(null);
+
       setOcrMetrics(null);
 
+      setOcrSecondPassStats(
+        null
+      );
+
+      setImagePrepReport(null);
+
+      setLetterFields(null);
+
+      setTranslatable(null);
+
       setPiiResults([]);
+
       setRedactedOcrText('');
 
       revokePreviewUrl();
 
-      setImagePreview(null);
+      setImagePreview(
+        null
+      );
 
-      setShowAnalysisResults(false);
+      setShowAnalysisResults(
+        false
+      );
 
       setLoading(true);
 
       try {
         // ------------------------------------------------------
         // STEP 1
-        // Browser image preprocessing
+        // Local image processing
         // ------------------------------------------------------
 
         const {
-          blob
+          blob,
+          width:
+            preparedWidth,
+          height:
+            preparedHeight
         } =
           await processImagePrivacy(
             file
@@ -1518,11 +4344,14 @@ export default function App() {
         }
 
         setLoading(false);
-        setIsScanning(true);
+
+        setIsScanning(
+          true
+        );
 
         // ------------------------------------------------------
         // STEP 2
-        // Local OCR
+        // Full-page local OCR
         // ------------------------------------------------------
 
         const ocrResult =
@@ -1534,7 +4363,10 @@ export default function App() {
           !ocrResult ||
           ocrCancelledRef.current
         ) {
-          setIsScanning(false);
+          setIsScanning(
+            false
+          );
+
           return;
         }
 
@@ -1545,23 +4377,150 @@ export default function App() {
 
         await runLocalPIIDetection(
           ocrResult.text,
-          ocrResult.words
+          ocrResult.lines
         );
 
         if (
           ocrCancelledRef.current
         ) {
-          setIsScanning(false);
+          setIsScanning(
+            false
+          );
+
           return;
         }
+
+        // ------------------------------------------------------
+        // STEP 3.5
+        // 第 0 层：本地关键字段抽取
+        //
+        // 这一步完全不联网、不调模型。
+        // 它回答老人对一封信真正关心的五个问题：
+        //   这是什么 / 谁寄的 / 大意 / 交多少 / 几号之前
+        //
+        // 抽取结果必须先通过交叉校验（分项求和、锚点一致性、
+        // OCR 置信度）才会被标记为可信。
+        // 校验不过就明确说「没看准」，绝不硬猜 ——
+        // 对着老人自信地报错一个金额，比说不知道糟糕得多。
+        // ------------------------------------------------------
+
+        const extraction =
+          extractLetterFields(
+            ocrResult.lines,
+            {
+              imageWidth:
+                preparedWidth,
+              imageHeight:
+                preparedHeight
+            }
+          );
+
+        setLetterFields(
+          extraction
+        );
+
+        console.group(
+          '[Field Extraction]'
+        );
+
+        console.log(
+          'Trustworthy:',
+          extraction.trustworthy
+        );
+
+        console.log(
+          'Fields:',
+          extraction.fields
+        );
+
+        console.log(
+          'Checks:',
+          extraction.checks
+        );
+
+        console.log(
+          '白名单载荷（唯一允许外发）：',
+          extraction.safePayload
+        );
+
+        console.groupEnd();
+
+        // ------------------------------------------------------
+        // STEP 3.6
+        // 逐行判定：哪些内容可以交给外部模型
+        //
+        // 第 0 层的模板只会说词典里有的话，
+        // 想让老人读懂整封信的大意，就必须把内容交给模型。
+        //
+        // 但老人看不懂英文，没法替我们把关，
+        // 所以不能「先发出去、漏了再说」，
+        // 必须让漏检的代价落在「少发几句」而不是「泄露账号」。
+        //
+        // 这一步只是**算出来**可以发什么，并不发送。
+        // ------------------------------------------------------
+
+        const payload =
+          buildTranslatablePayload(
+            ocrResult.lines,
+            {
+              detectPII:
+                detectLocalPII,
+
+              imageHeight:
+                preparedHeight,
+
+              /*
+               * 把已经认出来的寄件机构行号传进去。
+               * 有了这个确定的机构锚点，就能分清
+               * 「机构的地址电话」和「老人自己的地址电话」。
+               */
+              senderLineIndex:
+                extraction
+                  ?.fields
+                  ?.sender
+                  ?.box
+                  ?.id ??
+                null
+            }
+          );
+
+        setTranslatable(
+          payload
+        );
+
+        console.group(
+          '[可外发内容判定]'
+        );
+
+        console.log(
+          '统计:',
+          payload.stats
+        );
+
+        console.log(
+          '被拦下的行:',
+          payload.withheld
+        );
+
+        console.log(
+          '会发出去的文本:\n' +
+            payload.payloadText
+        );
+
+        console.groupEnd();
 
         // ------------------------------------------------------
         // STEP 4
         // Done
         // ------------------------------------------------------
 
-        setIsScanning(false);
-        setShowAnalysisResults(true);
+        setIsScanning(
+          false
+        );
+
+        setShowAnalysisResults(
+          true
+        );
       } catch (err) {
         console.error(
           '[Process] Failed:',
@@ -1572,18 +4531,28 @@ export default function App() {
           ocrCancelledRef.current
         ) {
           setLoading(false);
-          setIsScanning(false);
+
+          setIsScanning(
+            false
+          );
+
           return;
         }
 
         setError(
           err?.message ||
-          '照片处理失败，请重新拍一张。'
+            '照片处理失败，请重新拍一张。'
         );
 
         setLoading(false);
-        setIsScanning(false);
-        setShowAnalysisResults(true);
+
+        setIsScanning(
+          false
+        );
+
+        setShowAnalysisResults(
+          true
+        );
       }
     };
 
@@ -1592,19 +4561,23 @@ export default function App() {
   // Upload
   // ==========================================================
 
-  const handleImageUpload = (
-    event
-  ) => {
-    const file =
-      event.target.files?.[0];
+  const handleImageUpload =
+    (
+      event
+    ) => {
+      const file =
+        event.target
+          .files?.[0];
 
-    if (file) {
-      handleProcessFile(file);
-    }
+      if (file) {
+        handleProcessFile(
+          file
+        );
+      }
 
-    // Allows selecting the same file again.
-    event.target.value = '';
-  };
+      event.target.value =
+        '';
+    };
 
 
   // ==========================================================
@@ -1619,7 +4592,10 @@ export default function App() {
     }
 
     if (
-      !('speechSynthesis' in window)
+      !(
+        'speechSynthesis' in
+        window
+      )
     ) {
       alert(
         '您的浏览器暂不支持语音功能。'
@@ -1635,8 +4611,11 @@ export default function App() {
         text
       );
 
-    utterance.lang = 'zh-CN';
-    utterance.rate = 0.85;
+    utterance.lang =
+      'zh-CN';
+
+    utterance.rate =
+      0.85;
 
     window.speechSynthesis.speak(
       utterance
@@ -1651,13 +4630,8 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 p-4 md:p-8 font-sans relative">
 
-      {/* ======================================================
-          HEADER
-      ======================================================= */}
-
       <header className="max-w-xl mx-auto text-center my-6">
         <div className="flex items-center justify-center space-x-2 mb-2">
-
           <ShieldCheck
             className="text-green-600"
             size={36}
@@ -1666,7 +4640,6 @@ export default function App() {
           <h1 className="text-4xl font-extrabold text-blue-800 tracking-wide">
             安心小助手
           </h1>
-
         </div>
 
         <p className="text-xl text-slate-600 font-medium">
@@ -1674,10 +4647,6 @@ export default function App() {
         </p>
       </header>
 
-
-      {/* ======================================================
-          MAIN
-      ======================================================= */}
 
       <main className="max-w-xl mx-auto bg-white rounded-3xl shadow-xl p-6 border-4 border-slate-200 relative overflow-hidden">
 
@@ -1689,13 +4658,14 @@ export default function App() {
           <div className="relative bg-black rounded-3xl overflow-hidden flex flex-col items-center p-2 mb-4 z-20">
 
             <button
-              onClick={stopCamera}
+              onClick={
+                stopCamera
+              }
               className="absolute top-4 right-4 bg-slate-900/80 hover:bg-slate-900 text-white p-2.5 rounded-full z-30 flex items-center justify-center shadow-lg border border-white/20 active:scale-95 transition-all"
               title="关闭相机"
             >
               <X size={24} />
             </button>
-
 
             <video
               ref={videoRef}
@@ -1703,37 +4673,43 @@ export default function App() {
               playsInline
               muted
               className={`w-full h-80 object-cover rounded-2xl ${
-                facingMode === 'user'
+                facingMode ===
+                'user'
                   ? '-scale-x-100'
                   : ''
               }`}
             />
 
-
             <div className="w-full text-center py-2 bg-slate-900/90 text-amber-300 font-bold text-base md:text-lg flex items-center justify-center">
               请把整封信放进画面里
             </div>
 
-
             <div className="flex items-center justify-center gap-6 w-full my-4 px-3">
 
               <button
-                onClick={capturePhoto}
+                onClick={
+                  capturePhoto
+                }
                 className="bg-red-600 hover:bg-red-700 text-white font-bold text-xl py-3 px-8 rounded-full shadow-2xl flex items-center space-x-2 border-4 border-white animate-pulse shrink-0 active:scale-95 transition-all"
               >
-                <Camera size={26} />
+                <Camera
+                  size={26}
+                />
 
                 <span>
                   拍照
                 </span>
               </button>
 
-
               <button
-                onClick={toggleCameraFacing}
+                onClick={
+                  toggleCameraFacing
+                }
                 className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-2xl flex items-center space-x-1.5 text-base font-bold shadow-md shrink-0 active:scale-95 transition-all"
               >
-                <SwitchCamera size={20} />
+                <SwitchCamera
+                  size={20}
+                />
 
                 <span>
                   翻转
@@ -1766,9 +4742,10 @@ export default function App() {
 
             </div>
 
-
             <button
-              onClick={handleRequestClose}
+              onClick={
+                handleRequestClose
+              }
               className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-6 py-2 rounded-full text-lg"
             >
               取消处理
@@ -1782,687 +4759,1345 @@ export default function App() {
             IMAGE + RESULTS
         ===================================================== */}
 
-        {imagePreview && !loading && (
-          <div className="space-y-6">
+        {imagePreview &&
+          !loading && (
+            <div className="space-y-6">
 
-            {/* IMAGE */}
+              <div className="relative rounded-2xl overflow-hidden border-2 border-slate-300 bg-transparent shadow-inner">
 
-            <div className="relative rounded-2xl overflow-hidden border-2 border-slate-300 bg-transparent shadow-inner">
+                <button
+                  onClick={
+                    handleRequestClose
+                  }
+                  className="absolute top-3 right-3 bg-slate-900/80 hover:bg-slate-900 text-white font-bold p-2.5 rounded-full z-40 flex items-center justify-center shadow-lg border border-white/20"
+                  title="关闭并返回"
+                >
+                  <X size={24} />
+                </button>
 
-              <button
-                onClick={handleRequestClose}
-                className="absolute top-3 right-3 bg-slate-900/80 hover:bg-slate-900 text-white font-bold p-2.5 rounded-full z-40 flex items-center justify-center shadow-lg border border-white/20"
-                title="关闭并返回"
-              >
-                <X size={24} />
-              </button>
+                <div className="relative w-full block">
 
-
-              <div className="relative w-full block">
-
-                <img
-                  src={imagePreview}
-                  alt="信件预览"
-                  className="w-full h-auto block relative z-10"
-                />
-
-                {isScanning && (
-                  <div className="scanning-overlay z-15">
-                    <div className="scanning-line" />
-                  </div>
-                )}
-
-              </div>
-
-            </div>
-
-
-            {/* =================================================
-                SCANNING
-            ================================================== */}
-
-            {isScanning && (
-              <div className="bg-blue-50 border-4 border-blue-400 p-6 rounded-2xl text-center space-y-4">
-
-                <div className="flex items-center justify-center space-x-2 text-blue-800">
-
-                  <RefreshCw
-                    size={36}
-                    className="text-blue-600 animate-spin"
+                  <img
+                    src={imagePreview}
+                    alt="信件预览"
+                    className="w-full h-auto block relative z-10"
                   />
 
-                  <span className="text-2xl font-black">
-                    正在本地读取信件...
-                  </span>
+                  {isScanning && (
+                    <div className="scanning-overlay z-15">
+                      <div className="scanning-line" />
+                    </div>
+                  )}
 
                 </div>
 
-
-                <p className="text-lg text-blue-900 font-bold">
-                  PaddleOCR 正在您的浏览器中处理
-                </p>
-
-
-                <div className="w-full bg-blue-100 rounded-full h-4 overflow-hidden">
-
-                  <div
-                    className="bg-blue-600 h-4 rounded-full transition-all duration-300"
-                    style={{
-                      width: `${ocrProgress}%`
-                    }}
-                  />
-
-                </div>
-
-
-                <p className="text-base text-blue-800 font-bold">
-                  {loadingText}
-                </p>
-
-
-                <p className="text-sm text-blue-700">
-                  本阶段不会把照片发送到后端。
-                </p>
-
               </div>
-            )}
 
 
-            {/* =================================================
-                RESULTS
-            ================================================== */}
+              {/* =================================================
+                  SCANNING
+              ================================================== */}
 
-            {!isScanning &&
-              showAnalysisResults && (
-                <div className="space-y-5">
+              {isScanning && (
+                <div className="bg-blue-50 border-4 border-blue-400 p-6 rounded-2xl text-center space-y-4">
 
+                  <div className="flex items-center justify-center space-x-2 text-blue-800">
 
-                  {/* =================================================
-                      OCR STATUS
-                  ================================================== */}
+                    <RefreshCw
+                      size={36}
+                      className="text-blue-600 animate-spin"
+                    />
 
-                  <div className="bg-green-50 border-4 border-green-400 p-5 rounded-2xl">
-
-                    <div className="flex items-center gap-3 mb-3">
-
-                      <CheckCircle
-                        size={40}
-                        className="text-green-600"
-                      />
-
-                      <div>
-
-                        <h2 className="text-2xl font-black text-green-950">
-                          PaddleOCR + 本地隐私检测完成
-                        </h2>
-
-                        <p className="text-green-800 font-medium">
-                          当前照片和 OCR 文字都没有上传到 main.py
-                        </p>
-
-                      </div>
-
-                    </div>
-
-
-                    {ocrConfidence !== null && (
-                      <div className="bg-white rounded-xl p-4">
-
-                        <p className="text-base text-slate-500 font-bold">
-                          OCR 平均置信度
-                        </p>
-
-                        <p className="text-3xl font-black text-green-700">
-                          {Math.round(
-                            ocrConfidence
-                          )}
-                          %
-                        </p>
-
-                      </div>
-                    )}
+                    <span className="text-2xl font-black">
+                      正在本地读取信件...
+                    </span>
 
                   </div>
 
+                  <p className="text-lg text-blue-900 font-bold">
+                    PaddleOCR 正在您的浏览器中处理
+                  </p>
 
-                  {/* =================================================
-                      PII
-                  ================================================== */}
+                  <div className="w-full bg-blue-100 rounded-full h-4 overflow-hidden">
 
-                  <div className="bg-orange-50 border-4 border-orange-400 p-5 rounded-2xl">
-
-                    <div className="flex items-center gap-3 mb-4">
-
-                      <ShieldCheck
-                        size={38}
-                        className="text-orange-600"
-                      />
-
-                      <div>
-
-                        <h2 className="text-2xl font-black text-orange-950">
-                          本地 PII Detection
-                        </h2>
-
-                        <p className="text-orange-900 font-medium">
-                          个人信息检查完全在浏览器本地进行
-                        </p>
-
-                      </div>
-
-                    </div>
-
-
-                    <div className="bg-white rounded-xl p-4">
-
-                      <p className="text-base text-slate-500 font-bold">
-                        检测到
-                      </p>
-
-                      <p className="text-3xl font-black text-orange-700">
-
-                        {piiResults.length}
-
-                        <span className="text-xl ml-2">
-                          个可能的个人信息
-                        </span>
-
-                      </p>
-
-                    </div>
-
-
-                    {piiResults.length > 0 && (
-                      <div className="mt-4 space-y-3">
-
-                        <h3 className="font-black text-lg text-orange-950">
-                          检测结果
-                        </h3>
-
-
-                        {piiResults.map(
-                          (item, index) => (
-                            <div
-                              key={`${item.type || 'pii'}-${item.start ?? index}-${index}`}
-                              className="bg-white border-2 border-orange-200 rounded-xl p-4"
-                            >
-
-                              <p className="text-sm text-orange-700 font-bold">
-                                {item.type || 'PII'}
-                              </p>
-
-                              <p className="font-black text-slate-900 break-all">
-                                {item.value ||
-                                  '[检测到信息]'}
-                              </p>
-
-                              {item.placeholder && (
-                                <p className="text-sm text-slate-500 mt-1">
-                                  Redaction：
-                                  {item.placeholder}
-                                </p>
-                              )}
-
-                            </div>
-                          )
-                        )}
-
-                      </div>
-                    )}
-
-
-                    {piiResults.length === 0 && (
-                      <div className="mt-4 bg-white border-2 border-orange-200 rounded-xl p-4">
-
-                        <p className="text-orange-800 font-bold">
-                          当前没有检测到可能的 PII。
-                        </p>
-
-                        <p className="text-sm text-slate-500 mt-1">
-                          注意：没有检测到不代表照片中一定不存在个人信息。
-                        </p>
-
-                      </div>
-                    )}
+                    <div
+                      className="bg-blue-600 h-4 rounded-full transition-all duration-300"
+                      style={{
+                        width: `${ocrProgress}%`
+                      }}
+                    />
 
                   </div>
 
-
-                  {/* =================================================
-                      REDACTED OCR
-                  ================================================== */}
-
-                  <div className="bg-purple-50 border-4 border-purple-400 rounded-2xl p-5">
-
-                    <div className="flex items-center justify-between gap-3 mb-3">
-
-                      <div>
-
-                        <h3 className="text-xl font-black text-purple-950">
-                          脱敏后的文字预览
-                        </h3>
-
-                        <p className="text-sm text-purple-800">
-                          下一阶段发送给 AI 前将使用这个版本
-                        </p>
-
-                      </div>
-
-
-                      <button
-                        onClick={() =>
-                          handleSpeak(
-                            redactedOcrText
-                          )
-                        }
-                        className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-xl font-bold shrink-0"
-                      >
-
-                        <Volume2
-                          size={20}
-                        />
-
-                        <span>
-                          朗读
-                        </span>
-
-                      </button>
-
-                    </div>
-
-
-                    <div className="bg-white border-2 border-purple-200 rounded-xl p-4 max-h-96 overflow-y-auto">
-
-                      {redactedOcrText ? (
-                        <pre className="whitespace-pre-wrap break-words text-base text-slate-800 font-sans leading-relaxed">
-                          {redactedOcrText}
-                        </pre>
-                      ) : (
-                        <p className="text-slate-500">
-                          没有可显示的脱敏文字。
-                        </p>
-                      )}
-
-                    </div>
-
-                  </div>
-
-
-                  {/* =================================================
-                      ORIGINAL OCR
-                  ================================================== */}
-
-                  <details className="bg-white border-4 border-slate-300 rounded-2xl p-5 shadow-sm">
-
-                    <summary className="cursor-pointer font-black text-xl text-slate-900">
-
-                      查看原始 OCR 文字
-
-                    </summary>
-
-
-                    <div className="flex items-center justify-between gap-3 mt-4 mb-3">
-
-                      <p className="text-sm text-slate-500">
-                        PaddleOCR 从照片中读取到的原始文字
-                      </p>
-
-
-                      <button
-                        onClick={() =>
-                          handleSpeak(
-                            ocrText
-                          )
-                        }
-                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl font-bold"
-                      >
-
-                        <Volume2
-                          size={20}
-                        />
-
-                        <span>
-                          朗读
-                        </span>
-
-                      </button>
-
-                    </div>
-
-
-                    <div className="bg-slate-50 border-2 border-slate-200 rounded-xl p-4 max-h-96 overflow-y-auto">
-
-                      {ocrText ? (
-                        <pre className="whitespace-pre-wrap break-words text-base text-slate-800 font-sans leading-relaxed">
-                          {ocrText}
-                        </pre>
-                      ) : (
-                        <p className="text-red-600 font-bold">
-                          没有读取到文字。
-                        </p>
-                      )}
-
-                    </div>
-
-                  </details>
-
-
-                  {/* =================================================
-                      TECHNICAL INFORMATION
-                  ================================================== */}
-
-                  <details className="bg-slate-900 text-white rounded-2xl p-5">
-
-                    <summary className="cursor-pointer text-lg font-black">
-                      Local OCR 技术信息
-                    </summary>
-
-
-                    <div className="space-y-2 text-sm mt-4">
-
-                      <p>
-                        OCR Engine：
-                        <strong className="text-green-300">
-                          {' '}
-                          PaddleOCR.js
-                        </strong>
-                      </p>
-
-
-                      <p>
-                        OCR Model：
-                        <strong className="text-green-300">
-                          {' '}
-                          PP-OCRv5
-                        </strong>
-                      </p>
-
-
-                      <p>
-                        Execution：
-                        <strong className="text-green-300">
-                          {' '}
-                          Browser Local
-                        </strong>
-                      </p>
-
-
-                      <p>
-                        Worker：
-                        <strong className="text-green-300">
-                          {' '}
-                          Web Worker
-                        </strong>
-                      </p>
-
-
-                      <p>
-                        Runtime：
-                        <strong>
-                          {' '}
-                          {ocrRuntime
-                            ? JSON.stringify(
-                                ocrRuntime
-                              )
-                            : 'Local Runtime'}
-                        </strong>
-                      </p>
-
-
-                      {ocrMetrics && (
-                        <>
-                          <p>
-                            OCR Time：
-                            <strong>
-                              {' '}
-                              {typeof ocrMetrics.totalMs ===
-                              'number'
-                                ? `${Math.round(
-                                    ocrMetrics.totalMs
-                                  )} ms`
-                                : 'N/A'}
-                            </strong>
-                          </p>
-
-                          <p>
-                            Detected Boxes：
-                            <strong>
-                              {' '}
-                              {ocrMetrics.detectedBoxes ??
-                                'N/A'}
-                            </strong>
-                          </p>
-
-                          <p>
-                            Recognized Lines：
-                            <strong>
-                              {' '}
-                              {ocrMetrics.recognizedCount ??
-                                'N/A'}
-                            </strong>
-                          </p>
-                        </>
-                      )}
-
-
-                      <p>
-                        PII Detection：
-                        <strong className="text-green-300">
-                          {' '}
-                          Browser Local
-                        </strong>
-                      </p>
-
-
-                      <p>
-                        PII Count：
-                        <strong>
-                          {' '}
-                          {piiResults.length}
-                        </strong>
-                      </p>
-
-
-                      <p>
-                        Original OCR Text：
-                        <strong>
-                          {' '}
-                          {ocrText.length}
-                        </strong>{' '}
-                        characters
-                      </p>
-
-
-                      <p>
-                        Redacted OCR Text：
-                        <strong>
-                          {' '}
-                          {redactedOcrText.length}
-                        </strong>{' '}
-                        characters
-                      </p>
-
-
-                      <p>
-                        Upload to Backend：
-                        <strong className="text-green-300">
-                          {' '}
-                          NO
-                        </strong>
-                      </p>
-
-
-                      <p>
-                        Image Redaction：
-                        <strong className="text-amber-300">
-                          {' '}
-                          NOT YET
-                        </strong>
-                      </p>
-
-                    </div>
-
-                  </details>
-
-
-                  {/* =================================================
-                      PII JSON
-                  ================================================== */}
-
-                  {piiResults.length > 0 && (
-                    <details className="bg-slate-50 border-2 border-slate-300 rounded-2xl p-4">
-
-                      <summary className="cursor-pointer font-bold text-lg text-slate-800">
-                        查看 PII Detection 技术信息
-                      </summary>
-
-
-                      <div className="mt-4 overflow-x-auto">
-
-                        <pre className="text-xs text-slate-700 whitespace-pre-wrap break-all">
-                          {JSON.stringify(
-                            piiResults,
-                            null,
-                            2
-                          )}
-                        </pre>
-
-                      </div>
-
-                    </details>
-                  )}
-
-
-                  {/* =================================================
-                      OCR WORDS / LINES
-                  ================================================== */}
-
-                  {ocrWords.length > 0 && (
-                    <details className="bg-slate-50 border-2 border-slate-300 rounded-2xl p-4">
-
-                      <summary className="cursor-pointer font-bold text-lg text-slate-800">
-                        查看 PaddleOCR Lines + Bounding Box
-                      </summary>
-
-
-                      <div className="mt-4 overflow-x-auto">
-
-                        <pre className="text-xs text-slate-700 whitespace-pre-wrap break-all">
-                          {JSON.stringify(
-                            ocrWords,
-                            null,
-                            2
-                          )}
-                        </pre>
-
-                      </div>
-
-                    </details>
-                  )}
-
-
-                  {/* =================================================
-                      SECURITY NOTE
-                  ================================================== */}
-
-                  <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-5">
-
-                    <div className="flex items-start gap-3">
-
-                      <AlertTriangle
-                        size={30}
-                        className="text-amber-600 shrink-0"
-                      />
-
-
-                      <div>
-
-                        <p className="font-black text-amber-950 text-lg">
-                          当前是 Local OCR + Local PII 测试阶段
-                        </p>
-
-
-                        <p className="text-amber-900 mt-2 leading-relaxed">
-
-                          当前照片只在您的浏览器中处理。
-
-                          <br />
-                          <br />
-
-                          OCR 使用 PaddleOCR.js + PP-OCRv5。
-
-                          <br />
-                          <br />
-
-                          PII Detection 使用本地正则和 Luhn 校验。
-
-                          <br />
-                          <br />
-
-                          目前还没有把照片或 OCR
-                          文字发送给 AI。
-
-                          <br />
-                          <br />
-
-                          注意：当前 PII Detection
-                          是规则型检测，不代表能够发现照片中的全部个人信息。
-
-                        </p>
-
-                      </div>
-
-                    </div>
-
-                  </div>
-
-
-                  {/* =================================================
-                      BUTTONS
-                  ================================================== */}
-
-                  <div className="flex gap-4">
-
-                    <button
-                      onClick={handleClose}
-                      className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xl py-4 rounded-2xl flex items-center justify-center space-x-2"
-                    >
-
-                      <X size={24} />
-
-                      <span>
-                        关闭
-                      </span>
-
-                    </button>
-
-
-                    <button
-                      onClick={() =>
-                        startCamera(
-                          'environment'
-                        )
-                      }
-                      className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xl py-4 rounded-2xl flex items-center justify-center space-x-2 shadow-md"
-                    >
-
-                      <Camera
-                        size={24}
-                      />
-
-                      <span>
-                        再照一张
-                      </span>
-
-                    </button>
-
-                  </div>
+                  <p className="text-base text-blue-800 font-bold">
+                    {loadingText}
+                  </p>
+
+                  <p className="text-sm text-blue-700">
+                    第一遍 OCR、二次关键区域 OCR 和 PII 检测都在浏览器本地执行。
+                  </p>
 
                 </div>
               )}
 
-          </div>
-        )}
+
+              {/* =================================================
+                  RESULTS
+              ================================================== */}
+
+              {!isScanning &&
+                showAnalysisResults && (
+                  <div className="space-y-5">
+
+                    {/* =================================================
+                        第 0 层：老人真正要看的那张卡
+                        全部由本机模板拼成，没有联网，没有调模型
+                    ================================================== */}
+
+                    {letterFields &&
+                      letterFields.layer0 && (
+                        <div className="bg-white border-4 border-slate-800 rounded-2xl p-6 space-y-4">
+
+                          {/* ---- 诈骗警告：压在最上面，比什么都优先 ---- */}
+                          {letterFields
+                            .layer0
+                            .scamWarning && (
+                            <div className="bg-red-600 text-white rounded-2xl p-5 space-y-3">
+
+                              <div className="flex items-center gap-3">
+
+                                <AlertTriangle
+                                  size={40}
+                                  className="text-white shrink-0"
+                                />
+
+                                <p className="text-3xl font-black">
+                                  {
+                                    letterFields
+                                      .layer0
+                                      .scamWarning
+                                      .title
+                                  }
+                                </p>
+
+                              </div>
+
+                              <ul className="space-y-1">
+                                {letterFields.layer0.scamWarning.reasons.map(
+                                  (
+                                    reason,
+                                    index
+                                  ) => (
+                                    <li
+                                      key={index}
+                                      className="text-lg font-bold"
+                                    >
+                                      · {reason}
+                                    </li>
+                                  )
+                                )}
+                              </ul>
+
+                              <p className="text-xl font-black bg-white/15 rounded-xl p-3">
+                                {
+                                  letterFields
+                                    .layer0
+                                    .scamWarning
+                                    .advice
+                                }
+                              </p>
+
+                            </div>
+                          )}
+
+                          {/* ---- 紧急标记：红橙黄绿，最紧急再加感叹号 ---- */}
+                          <div className="flex items-baseline gap-2 flex-wrap">
+
+                            {letterFields
+                              .layer0
+                              .urgency && (
+                              <span className="text-3xl">
+                                {
+                                  letterFields
+                                    .layer0
+                                    .urgency
+                                    .flag
+                                }
+                                {
+                                  letterFields
+                                    .layer0
+                                    .urgency
+                                    .symbol
+                                }
+                              </span>
+                            )}
+
+                            <h2 className="text-3xl font-black text-slate-900">
+                              这封信说什么
+                            </h2>
+
+                            {letterFields
+                              .layer0
+                              .urgency && (
+                              <span className="text-2xl font-black text-slate-600">
+                                （
+                                {
+                                  letterFields
+                                    .layer0
+                                    .urgency
+                                    .cn
+                                }
+                                ）
+                              </span>
+                            )}
+
+                          </div>
+
+                          {letterFields
+                            .layer0
+                            .urgency &&
+                            letterFields
+                              .layer0
+                              .urgency
+                              .hint && (
+                              <p
+                                className={
+                                  'text-xl font-black ' +
+                                  (letterFields
+                                    .layer0
+                                    .urgency
+                                    .level ===
+                                  'red'
+                                    ? 'text-red-700'
+                                    : letterFields
+                                          .layer0
+                                          .urgency
+                                          .level ===
+                                      'orange'
+                                      ? 'text-orange-700'
+                                      : 'text-slate-600')
+                                }
+                              >
+                                {
+                                  letterFields
+                                    .layer0
+                                    .urgency
+                                    .hint
+                                }
+                              </p>
+                            )}
+
+                          <div className="space-y-3 text-2xl leading-relaxed text-slate-900 font-bold">
+
+                            <p>
+                              {
+                                letterFields
+                                  .layer0
+                                  .whatIsIt
+                              }
+                            </p>
+
+                            {letterFields
+                              .layer0
+                              .whoSentIt && (
+                              <p>
+                                {
+                                  letterFields
+                                    .layer0
+                                    .whoSentIt
+                                }
+                              </p>
+                            )}
+
+                            {letterFields
+                              .layer0
+                              .gist && (
+                              <p className="text-xl font-medium text-slate-700">
+                                {
+                                  letterFields
+                                    .layer0
+                                    .gist
+                                }
+                              </p>
+                            )}
+
+                          </div>
+
+                          {(letterFields
+                            .layer0
+                            .howMuch ||
+                            letterFields
+                              .layer0
+                              .whenDue) && (
+                            <div className="grid gap-3 sm:grid-cols-2 pt-2">
+
+                              {letterFields
+                                .layer0
+                                .howMuch && (
+                                <div className="bg-amber-50 border-4 border-amber-400 rounded-2xl p-5">
+
+                                  <p className="text-base font-black text-amber-800 mb-1">
+                                    金额
+                                  </p>
+
+                                  <p className="text-2xl font-black text-slate-900">
+                                    {
+                                      letterFields
+                                        .layer0
+                                        .howMuch
+                                    }
+                                  </p>
+
+                                </div>
+                              )}
+
+                              {letterFields
+                                .layer0
+                                .whenDue && (
+                                <div className="bg-rose-50 border-4 border-rose-400 rounded-2xl p-5">
+
+                                  <p className="text-base font-black text-rose-800 mb-1">
+                                    截止日期
+                                  </p>
+
+                                  <p className="text-2xl font-black text-slate-900">
+                                    {
+                                      letterFields
+                                        .layer0
+                                        .whenDue
+                                    }
+                                  </p>
+
+                                </div>
+                              )}
+
+                            </div>
+                          )}
+
+                          {letterFields
+                            .layer0
+                            .uncertain &&
+                            letterFields
+                              .layer0
+                              .uncertain
+                              .length > 0 && (
+                            <div className="bg-yellow-50 border-4 border-yellow-500 rounded-2xl p-5">
+
+                              <div className="flex items-center gap-2 mb-2">
+
+                                <AlertTriangle
+                                  size={28}
+                                  className="text-yellow-700"
+                                />
+
+                                <p className="text-xl font-black text-yellow-900">
+                                  这几项小助手没看准
+                                </p>
+
+                              </div>
+
+                              <ul className="space-y-1">
+                                {letterFields.layer0.uncertain.map(
+                                  (
+                                    item,
+                                    index
+                                  ) => (
+                                    <li
+                                      key={index}
+                                      className="text-lg font-bold text-yellow-900"
+                                    >
+                                      · {item}
+                                    </li>
+                                  )
+                                )}
+                              </ul>
+
+                            </div>
+                          )}
+
+                          <p className="text-lg font-bold text-slate-700">
+                            {
+                              letterFields
+                                .layer0
+                                .advice
+                            }
+                          </p>
+
+                          <div className="flex items-center gap-2 pt-2 border-t-2 border-slate-200">
+
+                            <ShieldCheck
+                              size={20}
+                              className="text-green-600"
+                            />
+
+                            <p className="text-sm font-bold text-slate-500">
+                              以上内容全部由这台设备本机生成，没有联网，也没有交给任何 AI 模型。
+                            </p>
+
+                          </div>
+
+                        </div>
+                      )}
+
+                    {/* =================================================
+                        可外发内容判定
+                        目前只计算、不发送
+                    ================================================== */}
+
+                    {translatable && (
+                      <div className="bg-indigo-50 border-4 border-indigo-400 rounded-2xl p-5 space-y-3">
+
+                        <div className="flex items-center gap-3">
+
+                          <ShieldCheck
+                            size={32}
+                            className="text-indigo-700"
+                          />
+
+                          <h3 className="text-2xl font-black text-indigo-950">
+                            信件大意翻译
+                          </h3>
+
+                        </div>
+
+                        <p className="text-lg font-bold text-indigo-900">
+                          本地已挡下{' '}
+                          {
+                            translatable
+                              .stats
+                              .withheldCount
+                          }{' '}
+                          处可能含个人信息的内容，其余{' '}
+                          {
+                            translatable
+                              .stats
+                              .sendableCount
+                          }{' '}
+                          处可以交给 AI 翻译成中文大意。
+                        </p>
+
+                        <div className="w-full bg-indigo-100 rounded-full h-4 overflow-hidden">
+                          <div
+                            className="bg-indigo-500 h-full"
+                            style={{
+                              width: `${translatable.stats.coverage}%`
+                            }}
+                          />
+                        </div>
+
+                        <p className="text-base font-bold text-indigo-800">
+                          可外发比例{' '}
+                          {
+                            translatable
+                              .stats
+                              .coverage
+                          }
+                          %
+                        </p>
+
+                        <details className="bg-white border-2 border-indigo-200 rounded-xl p-4">
+
+                          <summary className="cursor-pointer text-lg font-black text-indigo-900">
+                            看看到底会发出去什么
+                          </summary>
+
+                          <pre className="whitespace-pre-wrap break-words text-sm text-slate-700 mt-3 leading-relaxed">
+                            {
+                              translatable
+                                .payloadText
+                            }
+                          </pre>
+
+                        </details>
+
+                        {translatable
+                          .withheld
+                          .length > 0 && (
+                          <details className="bg-white border-2 border-orange-200 rounded-xl p-4">
+
+                            <summary className="cursor-pointer text-lg font-black text-orange-900">
+                              被挡下的{' '}
+                              {
+                                translatable
+                                  .withheld
+                                  .length
+                              }{' '}
+                              处（只列原因，内容不外传）
+                            </summary>
+
+                            <ul className="mt-3 space-y-1">
+                              {translatable.withheld.map(
+                                (
+                                  item,
+                                  index
+                                ) => (
+                                  <li
+                                    key={index}
+                                    className="text-base text-slate-700"
+                                  >
+                                    · 第 {item.index + 1} 行 ——{' '}
+                                    {item.reasons.join('、')}
+                                  </li>
+                                )
+                              )}
+                            </ul>
+
+                          </details>
+                        )}
+
+                        <p className="text-sm font-bold text-slate-500">
+                          注意：翻译功能还没有接上后端。上面这段文字是
+                          「一旦接上、会发出去的全部内容」，你可以先核对
+                          有没有漏掉的个人信息。
+                        </p>
+
+                      </div>
+                    )}
+
+                    {/* OCR STATUS */}
+
+                    <div className="bg-green-50 border-4 border-green-400 p-5 rounded-2xl">
+
+                      <div className="flex items-center gap-3 mb-3">
+
+                        <CheckCircle
+                          size={40}
+                          className="text-green-600"
+                        />
+
+                        <div>
+
+                          <h2 className="text-2xl font-black text-green-950">
+                            本地 OCR + 关键字段二次识别完成
+                          </h2>
+
+                          <p className="text-green-800 font-medium">
+                            当前照片和 OCR 文字都没有上传到 main.py
+                          </p>
+
+                        </div>
+
+                      </div>
+
+                      {ocrConfidence !==
+                        null && (
+                        <div className="bg-white rounded-xl p-4 mb-3">
+
+                          <p className="text-base text-slate-500 font-bold">
+                            OCR 平均置信度
+                          </p>
+
+                          <p className="text-3xl font-black text-green-700">
+                            {Math.round(
+                              ocrConfidence
+                            )}
+                            %
+                          </p>
+
+                        </div>
+                      )}
+
+                      {ocrSecondPassStats && (
+                        <div className="bg-white rounded-xl p-4">
+
+                          <p className="text-base text-slate-500 font-bold mb-2">
+                            Local 二次 OCR
+                          </p>
+
+                          <div className="grid grid-cols-2 gap-3 text-sm">
+
+                            <div>
+                              <span className="text-slate-500">
+                                候选区域
+                              </span>
+
+                              <div className="text-xl font-black text-slate-900">
+                                {
+                                  ocrSecondPassStats
+                                    .candidates
+                                }
+                              </div>
+                            </div>
+
+                            <div>
+                              <span className="text-slate-500">
+                                实际重识别
+                              </span>
+
+                              <div className="text-xl font-black text-slate-900">
+                                {
+                                  ocrSecondPassStats
+                                    .attempted
+                                }
+                              </div>
+                            </div>
+
+                            <div>
+                              <span className="text-slate-500">
+                                结果改善
+                              </span>
+
+                              <div className="text-xl font-black text-green-700">
+                                {
+                                  ocrSecondPassStats
+                                    .improved
+                                }
+                              </div>
+                            </div>
+
+                            <div>
+                              <span className="text-slate-500">
+                                未改变
+                              </span>
+
+                              <div className="text-xl font-black text-slate-900">
+                                {
+                                  ocrSecondPassStats
+                                    .unchanged
+                                }
+                              </div>
+                            </div>
+
+                          </div>
+
+                        </div>
+                      )}
+
+                    </div>
+
+
+                    {/* PII */}
+
+                    <div className="bg-orange-50 border-4 border-orange-400 p-5 rounded-2xl">
+
+                      <div className="flex items-center gap-3 mb-4">
+
+                        <ShieldCheck
+                          size={38}
+                          className="text-orange-600"
+                        />
+
+                        <div>
+
+                          <h2 className="text-2xl font-black text-orange-950">
+                            本地 PII Detection
+                          </h2>
+
+                          <p className="text-orange-900 font-medium">
+                            个人信息检查完全在浏览器本地进行
+                          </p>
+
+                        </div>
+
+                      </div>
+
+                      <div className="bg-white rounded-xl p-4">
+
+                        <p className="text-base text-slate-500 font-bold">
+                          检测到
+                        </p>
+
+                        <p className="text-3xl font-black text-orange-700">
+
+                          {
+                            piiResults.length
+                          }
+
+                          <span className="text-xl ml-2">
+                            个可能的个人信息
+                          </span>
+
+                        </p>
+
+                      </div>
+
+                      {piiResults.length >
+                        0 && (
+                        <div className="mt-4 space-y-3">
+
+                          <h3 className="font-black text-lg text-orange-950">
+                            检测结果
+                          </h3>
+
+                          {piiResults.map(
+                            (
+                              item,
+                              index
+                            ) => (
+                              <div
+                                key={`${item.type || 'pii'}-${item.start ?? index}-${index}`}
+                                className="bg-white border-2 border-orange-200 rounded-xl p-4"
+                              >
+
+                                <p className="text-sm text-orange-700 font-bold">
+                                  {
+                                    item.type ||
+                                    'PII'
+                                  }
+                                </p>
+
+                                <p className="font-black text-slate-900 break-all">
+                                  {
+                                    item.value ||
+                                    '[检测到信息]'
+                                  }
+                                </p>
+
+                                {item.placeholder && (
+                                  <p className="text-sm text-slate-500 mt-1">
+                                    Redaction：
+                                    {
+                                      item.placeholder
+                                    }
+                                  </p>
+                                )}
+
+                              </div>
+                            )
+                          )}
+
+                        </div>
+                      )}
+
+                      {piiResults.length ===
+                        0 && (
+                        <div className="mt-4 bg-white border-2 border-orange-200 rounded-xl p-4">
+
+                          <p className="text-orange-800 font-bold">
+                            当前没有检测到可能的 PII。
+                          </p>
+
+                          <p className="text-sm text-slate-500 mt-1">
+                            注意：没有检测到不代表照片中一定不存在个人信息。
+                          </p>
+
+                        </div>
+                      )}
+
+                    </div>
+
+
+                    {/* REDACTED OCR */}
+
+                    <div className="bg-purple-50 border-4 border-purple-400 rounded-2xl p-5">
+
+                      <div className="flex items-center justify-between gap-3 mb-3">
+
+                        <div>
+
+                          <h3 className="text-xl font-black text-purple-950">
+                            脱敏后的文字预览
+                          </h3>
+
+                          <p className="text-sm text-purple-800">
+                            下一阶段发送给 AI 前将使用这个版本
+                          </p>
+
+                        </div>
+
+                        <button
+                          onClick={() =>
+                            handleSpeak(
+                              redactedOcrText
+                            )
+                          }
+                          className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-xl font-bold shrink-0"
+                        >
+                          <Volume2
+                            size={20}
+                          />
+
+                          <span>
+                            朗读
+                          </span>
+                        </button>
+
+                      </div>
+
+                      <div className="bg-white border-2 border-purple-200 rounded-xl p-4 max-h-96 overflow-y-auto">
+
+                        {redactedOcrText ? (
+                          <pre className="whitespace-pre-wrap break-words text-base text-slate-800 font-sans leading-relaxed">
+                            {
+                              redactedOcrText
+                            }
+                          </pre>
+                        ) : (
+                          <p className="text-slate-500">
+                            没有可显示的脱敏文字。
+                          </p>
+                        )}
+
+                      </div>
+
+                    </div>
+
+
+                    {/* ORIGINAL OCR */}
+
+                    <details className="bg-white border-4 border-slate-300 rounded-2xl p-5 shadow-sm">
+
+                      <summary className="cursor-pointer font-black text-xl text-slate-900">
+                        查看最终 OCR 文字
+                      </summary>
+
+                      <div className="flex items-center justify-between gap-3 mt-4 mb-3">
+
+                        <p className="text-sm text-slate-500">
+                          第一遍 OCR + 关键字段二次 OCR 后的最终结果
+                        </p>
+
+                        <button
+                          onClick={() =>
+                            handleSpeak(
+                              ocrText
+                            )
+                          }
+                          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl font-bold"
+                        >
+                          <Volume2
+                            size={20}
+                          />
+
+                          <span>
+                            朗读
+                          </span>
+                        </button>
+
+                      </div>
+
+                      <div className="bg-slate-50 border-2 border-slate-200 rounded-xl p-4 max-h-96 overflow-y-auto">
+
+                        {ocrText ? (
+                          <pre className="whitespace-pre-wrap break-words text-base text-slate-800 font-sans leading-relaxed">
+                            {
+                              ocrText
+                            }
+                          </pre>
+                        ) : (
+                          <p className="text-red-600 font-bold">
+                            没有读取到文字。
+                          </p>
+                        )}
+
+                      </div>
+
+                    </details>
+
+
+                    {/* TECHNICAL INFORMATION */}
+
+                    <details className="bg-slate-900 text-white rounded-2xl p-5">
+
+                      <summary className="cursor-pointer text-lg font-black">
+                        Local OCR 技术信息
+                      </summary>
+
+                      <div className="space-y-2 text-sm mt-4">
+
+                        <p>
+                          OCR Engine：
+                          <strong className="text-green-300">
+                            {' '}
+                            PaddleOCR.js
+                          </strong>
+                        </p>
+
+                        <p>
+                          OCR Model：
+                          <strong className="text-green-300">
+                            {' '}
+                            {ocrModelVersion ||
+                              '初始化中'}
+                          </strong>
+                        </p>
+
+                        <p>
+                          Preprocess：
+                          <strong className="text-green-300">
+                            {' '}
+                            {imagePrepReport
+                              ? imagePrepReport
+                                  .fellBack
+                                ? '仅缩放（回退）'
+                                : imagePrepReport
+                                    .steps
+                                    .length
+                                  ? imagePrepReport.steps.join(
+                                      ' + '
+                                    )
+                                  : '无需矫正'
+                              : 'N/A'}
+                          </strong>
+                        </p>
+
+                        {imagePrepReport && (
+                          <>
+                            <p>
+                              Perspective Fix：
+                              <strong>
+                                {' '}
+                                {imagePrepReport
+                                  .warp &&
+                                imagePrepReport
+                                  .warp.applied
+                                  ? '已应用'
+                                  : `跳过（${
+                                      imagePrepReport
+                                        .warp
+                                        ?.reason ||
+                                      'n/a'
+                                    }）`}
+                              </strong>
+                            </p>
+
+                            <p>
+                              Deskew：
+                              <strong>
+                                {' '}
+                                {typeof imagePrepReport.deskewDeg ===
+                                'number'
+                                  ? `${imagePrepReport.deskewDeg}°`
+                                  : 'N/A'}
+                              </strong>
+                            </p>
+
+                            <p>
+                              Illumination：
+                              <strong>
+                                {' '}
+                                {imagePrepReport
+                                  .photometric
+                                  ?.applied
+                                  ? '已归一化'
+                                  : `跳过（${
+                                      imagePrepReport
+                                        .photometric
+                                        ?.reason ||
+                                      'n/a'
+                                    }）`}
+                              </strong>
+                            </p>
+
+                            <p>
+                              Preprocess Time：
+                              <strong>
+                                {' '}
+                                {imagePrepReport.elapsedMs}{' '}
+                                ms
+                              </strong>
+                            </p>
+                          </>
+                        )}
+
+                        <p>
+                          Execution：
+                          <strong className="text-green-300">
+                            {' '}
+                            Browser Local
+                          </strong>
+                        </p>
+
+                        <p>
+                          First Pass：
+                          <strong className="text-green-300">
+                            {' '}
+                            Full-page OCR
+                          </strong>
+                        </p>
+
+                        <p>
+                          Second Pass：
+                          <strong className="text-green-300">
+                            {' '}
+                            Critical-region Re-OCR
+                          </strong>
+                        </p>
+
+                        <p>
+                          Worker：
+                          <strong
+                            className={
+                              ocrWorkerActive ===
+                              false
+                                ? 'text-amber-300'
+                                : 'text-green-300'
+                            }
+                          >
+                            {' '}
+                            {ocrWorkerActive ===
+                            null
+                              ? '—'
+                              : ocrWorkerActive
+                                ? 'Web Worker'
+                                : 'Main Thread (Fallback)'}
+                          </strong>
+                        </p>
+
+                        <p>
+                          Runtime：
+                          <strong>
+                            {' '}
+                            {ocrRuntime
+                              ? JSON.stringify(
+                                  ocrRuntime
+                                )
+                              : 'Local Runtime'}
+                          </strong>
+                        </p>
+
+                        {ocrMetrics && (
+                          <>
+                            <p>
+                              OCR Time：
+                              <strong>
+                                {' '}
+                                {typeof ocrMetrics.totalMs ===
+                                'number'
+                                  ? `${Math.round(
+                                      ocrMetrics.totalMs
+                                    )} ms`
+                                  : 'N/A'}
+                              </strong>
+                            </p>
+
+                            <p>
+                              Detected Boxes：
+                              <strong>
+                                {' '}
+                                {ocrMetrics.detectedBoxes ??
+                                  'N/A'}
+                              </strong>
+                            </p>
+
+                            <p>
+                              Recognized Lines：
+                              <strong>
+                                {' '}
+                                {ocrMetrics.recognizedCount ??
+                                  'N/A'}
+                              </strong>
+                            </p>
+                          </>
+                        )}
+
+                        {ocrSecondPassStats && (
+                          <>
+                            <p>
+                              Second-pass Candidates：
+                              <strong>
+                                {' '}
+                                {
+                                  ocrSecondPassStats
+                                    .candidates
+                                }
+                              </strong>
+                            </p>
+
+                            <p>
+                              Second-pass Attempted：
+                              <strong>
+                                {' '}
+                                {
+                                  ocrSecondPassStats
+                                    .attempted
+                                }
+                              </strong>
+                            </p>
+
+                            <p>
+                              Second-pass Improved：
+                              <strong className="text-green-300">
+                                {' '}
+                                {
+                                  ocrSecondPassStats
+                                    .improved
+                                }
+                              </strong>
+                            </p>
+
+                            <p>
+                              Second-pass Failed：
+                              <strong className="text-amber-300">
+                                {' '}
+                                {
+                                  ocrSecondPassStats
+                                    .failed
+                                }
+                              </strong>
+                            </p>
+                          </>
+                        )}
+
+                        <p>
+                          PII Detection：
+                          <strong className="text-green-300">
+                            {' '}
+                            Browser Local
+                          </strong>
+                        </p>
+
+                        <p>
+                          PII Count：
+                          <strong>
+                            {' '}
+                            {
+                              piiResults.length
+                            }
+                          </strong>
+                        </p>
+
+                        <p>
+                          Original OCR Text：
+                          <strong>
+                            {' '}
+                            {
+                              ocrText.length
+                            }
+                          </strong>{' '}
+                          characters
+                        </p>
+
+                        <p>
+                          Redacted OCR Text：
+                          <strong>
+                            {' '}
+                            {
+                              redactedOcrText.length
+                            }
+                          </strong>{' '}
+                          characters
+                        </p>
+
+                        <p>
+                          Upload to Backend：
+                          <strong className="text-green-300">
+                            {' '}
+                            NO
+                          </strong>
+                        </p>
+
+                        <p>
+                          Image Redaction：
+                          <strong className="text-amber-300">
+                            {' '}
+                            NOT YET
+                          </strong>
+                        </p>
+
+                      </div>
+
+                    </details>
+
+
+                    {/* PII JSON */}
+
+                    {piiResults.length >
+                      0 && (
+                      <details className="bg-slate-50 border-2 border-slate-300 rounded-2xl p-4">
+
+                        <summary className="cursor-pointer font-bold text-lg text-slate-800">
+                          查看 PII Detection 技术信息
+                        </summary>
+
+                        <div className="mt-4 overflow-x-auto">
+
+                          <pre className="text-xs text-slate-700 whitespace-pre-wrap break-all">
+                            {JSON.stringify(
+                              piiResults,
+                              null,
+                              2
+                            )}
+                          </pre>
+
+                        </div>
+
+                      </details>
+                    )}
+
+
+                    {/* OCR LINES */}
+
+                    {ocrLines.length >
+                      0 && (
+                      <details className="bg-slate-50 border-2 border-slate-300 rounded-2xl p-4">
+
+                        <summary className="cursor-pointer font-bold text-lg text-slate-800">
+                          查看 PaddleOCR Lines + Bounding Box
+                        </summary>
+
+                        <div className="mt-4 overflow-x-auto">
+
+                          <pre className="text-xs text-slate-700 whitespace-pre-wrap break-all">
+                            {JSON.stringify(
+                              ocrLines,
+                              null,
+                              2
+                            )}
+                          </pre>
+
+                        </div>
+
+                      </details>
+                    )}
+
+
+                    {/* OCR BLOCKS */}
+
+                    {ocrBlocks.length >
+                      0 && (
+                      <details className="bg-slate-50 border-2 border-slate-300 rounded-2xl p-4">
+
+                        <summary className="cursor-pointer font-bold text-lg text-slate-800">
+                          查看 OCR Layout Blocks
+                        </summary>
+
+                        <div className="mt-4 space-y-3">
+
+                          {ocrBlocks.map(
+                            (
+                              block
+                            ) => (
+                              <div
+                                key={
+                                  block.id
+                                }
+                                className="bg-white border border-slate-200 rounded-xl p-4"
+                              >
+
+                                <p className="font-black text-slate-900 mb-2">
+                                  Block{' '}
+                                  {
+                                    block.id
+                                  }
+                                </p>
+
+                                <pre className="text-sm text-slate-700 whitespace-pre-wrap break-words">
+                                  {
+                                    block.text
+                                  }
+                                </pre>
+
+                                <p className="text-xs text-slate-400 mt-2">
+                                  bbox:{' '}
+                                  {JSON.stringify(
+                                    block.bbox
+                                  )}
+                                </p>
+
+                              </div>
+                            )
+                          )}
+
+                        </div>
+
+                      </details>
+                    )}
+
+
+                    {/* SECURITY NOTE */}
+
+                    <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-5">
+
+                      <div className="flex items-start gap-3">
+
+                        <AlertTriangle
+                          size={30}
+                          className="text-amber-600 shrink-0"
+                        />
+
+                        <div>
+
+                          <p className="font-black text-amber-950 text-lg">
+                            当前是 Local OCR + Local PII 测试阶段
+                          </p>
+
+                          <p className="text-amber-900 mt-2 leading-relaxed">
+
+                            当前照片只在您的浏览器中处理。
+
+                            <br />
+                            <br />
+
+                            OCR 使用 PaddleOCR.js + PP-OCRv5。
+
+                            <br />
+                            <br />
+
+                            第一遍 OCR 读取整张信件。
+
+                            <br />
+                            <br />
+
+                            第二遍 OCR 会自动针对金额、日期、账号、号码等关键区域进行本地裁剪、放大和重新识别。
+
+                            <br />
+                            <br />
+
+                            PII Detection 使用本地正则和 Luhn 校验。
+
+                            <br />
+                            <br />
+
+                            目前还没有把照片或 OCR 文字发送给 AI。
+
+                            <br />
+                            <br />
+
+                            注意：当前 PII Detection 是规则型检测，不代表能够发现照片中的全部个人信息。
+
+                          </p>
+
+                        </div>
+
+                      </div>
+
+                    </div>
+
+
+                    {/* BUTTONS */}
+
+                    <div className="flex gap-4">
+
+                      <button
+                        onClick={
+                          handleClose
+                        }
+                        className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xl py-4 rounded-2xl flex items-center justify-center space-x-2"
+                      >
+                        <X
+                          size={24}
+                        />
+
+                        <span>
+                          关闭
+                        </span>
+                      </button>
+
+                      <button
+                        onClick={() =>
+                          startCamera(
+                            'environment'
+                          )
+                        }
+                        className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xl py-4 rounded-2xl flex items-center justify-center space-x-2 shadow-md"
+                      >
+                        <Camera
+                          size={24}
+                        />
+
+                        <span>
+                          再照一张
+                        </span>
+                      </button>
+
+                    </div>
+
+                  </div>
+                )}
+
+            </div>
+          )}
 
 
         {/* ====================================================
@@ -2498,13 +6133,11 @@ export default function App() {
 
               </button>
 
-
               <label className="cursor-pointer block text-center p-4 bg-slate-100 border-2 border-dashed border-slate-300 rounded-2xl hover:bg-slate-200 transition-all">
 
                 <span className="text-lg font-bold text-slate-700">
                   从手机选择照片
                 </span>
-
 
                 <input
                   type="file"
@@ -2525,45 +6158,45 @@ export default function App() {
             ERROR
         ===================================================== */}
 
-        {error && !loading && (
-          <div className="bg-red-100 border-2 border-red-400 rounded-2xl p-6 my-4 z-50 relative">
+        {error &&
+          !loading && (
+            <div className="bg-red-100 border-2 border-red-400 rounded-2xl p-6 my-4 z-50 relative">
 
-            <AlertTriangle
-              size={48}
-              className="text-red-600 mx-auto mb-2"
-            />
+              <AlertTriangle
+                size={48}
+                className="text-red-600 mx-auto mb-2"
+              />
 
+              <p className="text-2xl font-bold text-red-800 text-center">
+                {error}
+              </p>
 
-            <p className="text-2xl font-bold text-red-800 text-center">
-              {error}
-            </p>
+              <div className="flex justify-center gap-4 mt-4">
 
+                <button
+                  onClick={
+                    handleClose
+                  }
+                  className="bg-slate-200 text-slate-800 text-xl font-bold py-3 px-6 rounded-full shadow hover:bg-slate-300"
+                >
+                  关闭
+                </button>
 
-            <div className="flex justify-center gap-4 mt-4">
+                <button
+                  onClick={() =>
+                    startCamera(
+                      'environment'
+                    )
+                  }
+                  className="bg-red-600 text-white text-xl font-bold py-3 px-8 rounded-full shadow-lg hover:bg-red-700"
+                >
+                  重新拍照
+                </button>
 
-              <button
-                onClick={handleClose}
-                className="bg-slate-200 text-slate-800 text-xl font-bold py-3 px-6 rounded-full shadow hover:bg-slate-300"
-              >
-                关闭
-              </button>
-
-
-              <button
-                onClick={() =>
-                  startCamera(
-                    'environment'
-                  )
-                }
-                className="bg-red-600 text-white text-xl font-bold py-3 px-8 rounded-full shadow-lg hover:bg-red-700"
-              >
-                重新拍照
-              </button>
+              </div>
 
             </div>
-
-          </div>
-        )}
+          )}
 
       </main>
 
@@ -2582,7 +6215,6 @@ export default function App() {
               className="text-blue-600 mx-auto"
             />
 
-
             <div className="space-y-2">
 
               <h3 className="text-2xl font-black text-slate-900">
@@ -2595,7 +6227,6 @@ export default function App() {
 
             </div>
 
-
             <div className="flex flex-col gap-3">
 
               <button
@@ -2606,7 +6237,6 @@ export default function App() {
               >
                 取消
               </button>
-
 
               <button
                 onClick={
