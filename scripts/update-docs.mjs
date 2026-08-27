@@ -16,6 +16,7 @@ import { execSync } from 'child_process';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const UTILS = path.join(ROOT, 'frontend/src/utils');
 const DOC = path.join(ROOT, 'docs/how-it-works.md');
+const README = path.join(ROOT, 'README.md');
 const CHECK = process.argv.includes('--check');
 
 // ---------- 词典规模：从抽取器源码里数 ----------
@@ -28,12 +29,19 @@ const between = (a, b) => {
 };
 const countRe = (chunk) => (chunk.match(/re:\s*\//g) || []).length;
 
+/*
+ * 这些计数必须限定在对应的词典块里数，不能全文数。
+ * 原来「已知机构」全文数 /kind: '/，而 buildLayer0 的 highlights 里
+ * 每个 { kind: 'amount' } 也长这样 —— 于是 44 家机构被数成了 47。
+ * 文档里那个数字错了整整一轮，而且是**文档自己在撒谎**，
+ * 正好是这个脚本存在的理由。加发信日期高亮时数字跳到 48 才暴露。
+ */
 const dict = [
-  ['已知机构', (src.match(/kind: '/g) || []).length],
+  ['已知机构', (between('KNOWN_ORGS', '\n];').match(/kind: '/g) || []).length],
   ['信件类别', (src.match(/baseUrgency: '/g) || []).length],
   ['信件子类型', (src.match(/notABill: /g) || []).length],
   ['金额锚点', countRe(between('AMOUNT_ANCHORS', '];'))],
-  ['日期锚点', countRe(between('DATE_ANCHORS', '];'))],
+  ['日期锚点', countRe(between('DATE_ANCHORS', '];')) + countRe(between('STATEMENT_DATE_ANCHORS', '];'))],
   ['句式词典', countRe(between('PHRASE_RULES', '\n];'))],
   ['诈骗特征', countRe(between('SCAM_SIGNALS', '];'))],
   ['交叉校验', (src.match(/addCheck\(/g) || []).length],
@@ -53,7 +61,14 @@ const run = (file) => {
 };
 
 const acc = run('accuracy.test.mjs');
-const scoreLine = (acc.match(/类别 .*到期日 .*/) || ['（跑 accuracy.test.mjs 失败）'])[0].trim();
+/*
+ * 必须匹配「类别 6/6 100%」这种带数字的汇总行。
+ * 原来那条正则用的是通配符，加了「发信日期」这一列之后，
+ * 表头「类别  金额  付款方式  到期日  发信日期」先被匹配上了，
+ * 于是文档里的「当前分数」变成了一行表头。
+ */
+const scoreLine = (acc.match(/类别 \d+\/\d+[^\n]*到期日 \d+\/\d+[^\n]*/) ||
+  ['（跑 accuracy.test.mjs 失败）'])[0].trim();
 
 const suites = [
   ['合成信件', 'fieldExtractor.test.mjs'],
@@ -61,6 +76,7 @@ const suites = [
   ['类别拆分', 'fieldExtractor.split.test.mjs'],
   ['语句一致性', 'fieldExtractor.consistency.test.mjs'],
   ['脱敏断言', 'contentRedactor.hoag.test.mjs'],
+  ['第一梯队真实信', 'fieldExtractor.tier1.test.mjs'],
 ];
 const suiteRows = suites.map(([name, file]) => {
   const out = run(file);
@@ -92,6 +108,26 @@ ${suiteRows.join('\n')}
 ${dict.map(([k, v]) => `| ${k} | ${v} |`).join('\n')}
 `.trim();
 
+// ---------- README 的分数块 ----------
+/*
+ * README 里也不许手写数字。
+ * 之前「47 known organizations」错了整整一轮 —— 计数是全文数 /kind: '/，
+ * 把 buildLayer0 里 { kind: 'amount' } 这类高亮标记也数进去了。真实是 40。
+ */
+const readmeBlock = `
+| Suite | Result |
+|---|---|
+| **Real bills, hand-labeled ground truth** | ${letters.length} letters × 5 fields — ${scoreLine
+  .replace(/类别/, 'category').replace(/金额/, 'amount')
+  .replace(/付款方式/, 'payment').replace(/到期日/, 'due date')
+  .replace(/发信日期/, 'statement date')} |
+${suiteRows
+  .map((r) => r.replace(/^\| [^|]+ \| /, '| '))
+  .join('\n')}
+
+Dictionary sizes: ${dict.map(([k, v]) => `${k} ${v}`).join(' · ')}.
+`.trim();
+
 // ---------- 写回 ----------
 const doc = fs.readFileSync(DOC, 'utf8');
 const BEGIN = '<!-- AUTO:BEGIN 以下内容由 scripts/update-docs.mjs 生成，不要手改 -->';
@@ -104,7 +140,27 @@ if (i < 0 || j < 0) {
 }
 const next = doc.slice(0, i + BEGIN.length) + '\n\n' + block + '\n\n' + doc.slice(j);
 
+const readme = fs.readFileSync(README, 'utf8');
+const R_BEGIN = '<!-- AUTO:BEGIN README 分数由 scripts/update-docs.mjs 生成，不要手改 -->';
+const R_END = '<!-- AUTO:END -->';
+const ri = readme.indexOf(R_BEGIN);
+const rj = readme.indexOf(R_END, ri);
+if (ri < 0 || rj < 0) {
+  console.error('❌ README.md 里找不到 AUTO 标记');
+  process.exit(1);
+}
+const nextReadme =
+  readme.slice(0, ri + R_BEGIN.length) +
+  '\n\n' +
+  readmeBlock +
+  '\n\n' +
+  readme.slice(rj);
+
 if (CHECK) {
+  if (nextReadme.trim() !== readme.trim()) {
+    console.error('❌ README.md 已过期，跑 node scripts/update-docs.mjs');
+    process.exit(1);
+  }
   if (next.trim() !== doc.trim()) {
     console.error('❌ docs/how-it-works.md 已过期，跑 node scripts/update-docs.mjs');
     process.exit(1);
@@ -112,7 +168,8 @@ if (CHECK) {
   console.log('✅ 文档与代码一致');
 } else {
   fs.writeFileSync(DOC, next);
-  console.log('✅ docs/how-it-works.md 已更新');
+  fs.writeFileSync(README, nextReadme);
+  console.log('✅ docs/how-it-works.md + README.md 已更新');
   console.log('   ' + scoreLine);
   console.log('   词典 ' + dict.map(([k, v]) => `${k}${v}`).join(' · '));
 }

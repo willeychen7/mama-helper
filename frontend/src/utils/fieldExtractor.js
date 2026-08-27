@@ -374,6 +374,15 @@ const DATE_ANCHORS = [
   { re: /\bdelinquen(t|cy)\s*(date|after)\b/i, weight: 80 },
 
   /*
+   * 房产税、保费、分期账单的标准措辞：
+   *   The FIRST INSTALLMENT is due in full on November 1, 2024.
+   * 原来一条锚点都不命中，于是 11月1日 压根没进候选，
+   * 系统只看得见「deadline … December 10」那两行。
+   */
+  { re: /\bdue\s*in\s*full\b/i, weight: 96 },
+  { re: /\bis\s*due\s*on\b/i, weight: 94 },
+
+  /*
    * 真实的水费账单，到期日印在表格格子里，
    * 标签就只有两个字母：
    *     CURRENT AMOUNT | $ 71.20 | BY: 04/30/2024
@@ -383,6 +392,77 @@ const DATE_ANCHORS = [
    */
   { re: /^(pay\s*)?by\s*:/i, weight: 76 }
 ];
+
+/*
+ * 发信日期（statement date）和截止日期（due date）是两回事，
+ * 混在一起是最容易让老人做错事的一类错。
+ *
+ *   发信日期  这封信是什么时候写的        —— 只是背景，不用做任何事
+ *   截止日期  你必须在这天之前做点什么    —— 要行动
+ *
+ * Hoag 那张医院账单上只有 STATEMENT DATE 10/19/18，根本没有到期日。
+ * 早期版本要么把它当成「请在 2018年10月19日 之前处理」（凭空造出一个期限），
+ * 要么被 DATE_ANCHOR_BLOCKERS 整个挡掉、于是这个日期就消失了。
+ * 两种都不对：它是一个真实存在、老人也想知道的信息，
+ * 只是不能冒充截止日。所以单独抽，单独显示。
+ */
+const STATEMENT_DATE_ANCHORS = [
+  { re: /\bstatement\s*date\b/i, weight: 100 },
+  { re: /\bstatement\s*(closing|period\s*ending)\s*date\b/i, weight: 98 },
+  { re: /\binvoice\s*date\b/i, weight: 98 },
+  { re: /\bbill(ing)?\s*date\b/i, weight: 96 },
+  { re: /\bdate\s*of\s*(this\s*)?(notice|letter|statement)\b/i, weight: 96 },
+  { re: /\bnotice\s*date\b/i, weight: 94 },
+  { re: /\bdate\s*(issued|mailed|printed|prepared)\b/i, weight: 92 },
+  { re: /\bissue\s*date\b/i, weight: 90 },
+  { re: /\bprinted\s*on\b/i, weight: 84 }
+];
+
+/*
+ * 出生日期和就诊日期长得像发信日期，但都不是。
+ * 尤其 date of birth —— 那是 PII，抽出来显示在卡片上就是泄露。
+ */
+/*
+ * 政府信、法院信、律师信通常没有「Statement Date」这种标签，
+ * 只在信头孤零零印一行日期：
+ *
+ *     April 24, 2024
+ *
+ * 这恰恰是后果最重的一类信，日期不能丢。
+ *
+ * 但「页面上方有个日期」本身是个很松的规则，很容易误抓
+ * （出生日期、就诊日期、正文里随口提到的日期都长这样）。
+ * 所以卡死四个条件，全满足才认：
+ *   1. 这一行除了日期什么都没有 —— 排除句子里的日期
+ *   2. 在页面上三分之一 —— 信头位置
+ *   3. 不在未来
+ *   4. 没有任何带标签的发信日期 —— 有标签的永远优先
+ *
+ * 注意 PP-OCR 不输出词间空格（April24,2024），所以全用 \s*。
+ */
+const BARE_DATE_LINE_RE =
+  /^[\s,.:;]*((jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*\d{1,2}\s*,?\s*\d{4}|\d{1,2}\s*[/-]\s*\d{1,2}\s*[/-]\s*\d{2,4}|\d{4}\s*-\s*\d{2}\s*-\s*\d{2})[\s,.:;]*$/i;
+
+const STATEMENT_ANCHOR_BLOCKERS =
+  /\bdate\s*of\s*(birth|service|death)\b|\bdob\b/i;
+
+/*
+ * 「Medi-Cal」必须带分隔符。
+ *
+ * 原来写的是 /medi-?cal\b/i —— 连字符可选。但 "medical" 这个英文单词
+ * 恰好就是 medi + cal，于是 "Medical care"、"MEDICAL CENTER"、
+ * "Hoag Medical Group" 全都被认成了白卡 Medi-Cal。
+ * 一封私立医院的账单会被告诉老人「这是白卡寄来的」。
+ *
+ * 加了 i 标志之后，"MediCal" 和 "medical" 在正则眼里是同一个字符串，
+ * 没有任何办法区分。所以只能要求分隔符：官方写法一直是带连字符的
+ * 「Medi-Cal」，而 DHCS / department of health care services 这两个
+ * 别名本来就还在，官方信照样认得出。
+ *
+ * 代价是 OCR 万一把连字符吃掉就漏认 —— 但漏认只是机构显示成「未知」，
+ * 误认是自信地说错。方向上永远选前者。
+ */
+const MEDI_CAL_RE = /\bmedi[-\s]cal\b/i;
 
 const DATE_ANCHOR_BLOCKERS =
   /\bbilling\s*period\b|\bservice\s*period\b|\bstatement\s*date\b|\bbill\s*date\b|\bdate\s*of\s*(birth|service|this\s*notice)\b|\bprinted\s*on\b|\bclaims\s*processed\s*between\b|\bpay\s*by\s*(phone|credit|card|mail|check|cheque|debit|bank|text|app|online|web|autopay)\b/i;
@@ -478,14 +558,31 @@ const findValueNearAnchor = (anchorLine, lines, parseValue) => {
   const unit = Math.max(1, anchorLine.height || 20);
   const candidates = [];
 
-  // --- 情况 3：值就在锚点这一行 ---
+  /*
+   * --- 情况 3：值就在锚点这一行 ---
+   *
+   * 分数必须高于「正下方」（85）。
+   *
+   * 原来给 70，结果 OC 房产税单上这一行：
+   *     The deadline to pay without penalty is December 10, 2024.
+   * 锚点「deadline」自己这行就带着 12月10日，
+   * 但下一行「…is due in full on February 1, 2025.」按「正下方」拿到 81 分，
+   * 把自带的日期顶掉了 —— 于是对老人说「请在 2025年2月1日 之前处理」，
+   * 而真正会罚 10% 的是 2024年12月10日。
+   *
+   * 标签和值出现在同一个 OCR 行里，是最强的证据，
+   * 不该输给「下面那行碰巧也有个数」。
+   *
+   * 仍然低于「同行右侧」（近距离时接近 100）—— 表格式版面里
+   * 「标签 | 值」分成两个框才是最标准的写法。
+   */
   const selfValue = parseValue(anchorLine, true);
   if (selfValue !== null && selfValue !== undefined) {
     candidates.push({
       line: anchorLine,
       value: selfValue,
       relation: 'same-line',
-      score: 70
+      score: 92
     });
   }
 
@@ -643,7 +740,7 @@ const KNOWN_ORGS = [
   // ---- 政府 / 福利 ----
   { re: /social\s*security\s*administration|\bSSA\b/i, en: 'Social Security Administration', abbr: 'SSA', cn: '美国社会安全局', kind: 'social_security' },
   { re: /\bmedicare\b|centers\s*for\s*medicare/i, en: 'Medicare', abbr: 'Medicare', cn: 'Medicare（红蓝卡）', kind: 'medicare' },
-  { re: /medi-?cal\b|department\s*of\s*health\s*care\s*services|\bDHCS\b/i, en: 'Medi-Cal', abbr: 'Medi-Cal', cn: 'Medi-Cal（白卡）', kind: 'medi_cal' },
+  { re: /\bmedi[-\s]cal\b|department\s*of\s*health\s*care\s*services|\bDHCS\b/i, en: 'Medi-Cal', abbr: 'Medi-Cal', cn: 'Medi-Cal（白卡）', kind: 'medi_cal' },
   { re: /internal\s*revenue\s*service|\bIRS\b/i, en: 'Internal Revenue Service', abbr: 'IRS', cn: '美国国税局', kind: 'tax' },
   { re: /franchise\s*tax\s*board|\bFTB\b/i, en: 'Franchise Tax Board', abbr: 'FTB', cn: '加州税务局', kind: 'tax' },
   { re: /\bUSCIS\b|citizenship\s*and\s*immigration/i, en: 'USCIS', abbr: 'USCIS', cn: '美国移民局', kind: 'immigration' },
@@ -777,7 +874,7 @@ const LETTER_CATEGORIES = [
     re: /\bmedicare\s*(summary\s*notice|advantage|part\s*[abcd])\b|\bMSN\b|annual\s*notice\s*of\s*change|\bANOC\b|evidence\s*of\s*coverage|\bIRMAA\b|medicare\s*number/i, weight: 4 },
 
   { id: 'medi_cal', cn: '白卡 Medi-Cal', kinds: ['medi_cal'], baseUrgency: 'orange',
-    re: /medi-?cal\b|annual\s*redetermination|\bMC\s*210\b|notice\s*of\s*action|keep\s*your\s*(medi-?cal\s*)?coverage|renew\s*your\s*medi-?cal/i, weight: 4 },
+    re: /\bmedi[-\s]cal\b|annual\s*redetermination|\bMC\s*2(10|16|17)\b|notice\s*of\s*action|keep\s*your\s*(medi[-\s]cal\s*)?coverage|renew\s*your\s*medi[-\s]cal/i, weight: 4 },
 
   { id: 'social_security', cn: '社安局 SSA', kinds: ['social_security'], baseUrgency: 'orange',
     re: /social\s*security|\bSSI\b|cost-?of-?living\s*adjustment|\bCOLA\b|benefit\s*verification|award\s*letter|\bSSA-\d{3,4}\b|continuing\s*disability\s*review/i, weight: 4 },
@@ -979,7 +1076,12 @@ const LETTER_SUBTYPES = [
   { id: 'NOA', category: 'benefits', notABill: true, cn: '福利决定通知（Notice of Action）', re: /notice\s*of\s*action\b/i,
     gist: '这是政府对你的福利资格做出的正式决定通知，可能是批准、变更或停止。如果不同意，信里通常会写申诉期限。', urgency: 'orange' },
 
-  { id: 'REDETERMINATION', category: 'medi_cal', notABill: true, cn: '白卡年度资格复审', re: /annual\s*redetermination|renew\s*your\s*medi-?cal|keep\s*your\s*coverage|\bMC\s*210\s*RV\b/i,
+  { id: 'REDETERMINATION', category: 'medi_cal', notABill: true, cn: '白卡年度资格复审', /*
+     * MC 216 是现在真正在寄的那张年度复审表（MC 210 RV 是旧的）。
+     * 官方措辞是「Your Medi-Cal is up for renewal.」，
+     * 比旧版的「annual redetermination」软得多，原来一条都不命中。
+     */
+    re: /annual\s*redetermination|renew\s*your\s*medi[-\s]cal|keep\s*your\s*coverage|\bMC\s*2(10\s*RV|16|17)\b|medi[-\s]cal\s*(is\s*up\s*for\s*renewal|renewal\s*form)|your\s*medi[-\s]cal\s*is\s*up\s*for\s*renewal/i,
     gist: '这是白卡（Medi-Cal）的年度资格复审。必须按时把表格填好寄回，否则医疗保险会被停掉。', urgency: 'red' },
 
   { id: 'COLA', category: 'social_security', notABill: true, cn: '社安金生活费调整通知（COLA）', re: /cost-?of-?living\s*adjustment|\bCOLA\b.*(notice|increase)/i,
@@ -1446,7 +1548,7 @@ const PHRASE_RULES = [
    * 原来只匹配 will end / will be terminated，
    * 这两句真实措辞全都漏掉了 —— 而这是最不该漏的一类信。
    */
-  { re: /(your\s*)?(coverage|benefits?|eligibility|medi-?cal)\s*(will|may)\s*(end|be\s*(terminated|stopped|discontinued|cancell?ed)|stop)|take\s*steps\s*to\s*stop\s*your/i,
+  { re: /(your\s*)?(coverage|benefits?|eligibility|medi[-\s]cal)\s*(will|may)\s*(end|be\s*(terminated|stopped|discontinued|cancell?ed)|stop)|take\s*steps\s*to\s*stop\s*your/i,
     cn: '信里提到你的保险或福利可能会被停掉。', intent: 'BENEFIT_CHANGE', severity: 3, conditional: true },
   { re: /(request|file)\s*(an\s*)?(appeal|reconsideration)|you\s*have\s*the\s*right\s*to\s*appeal/i,
     cn: '如果不同意信里的决定，可以在期限内提出申诉。', intent: 'DEADLINE', severity: 2 },
@@ -1908,7 +2010,64 @@ export function extractLetterFields(lines, options = {}) {
 
   const appealCandidates = [];
 
+  const statementCandidates = [];
+
+  // 无标签的信头日期，只在没有带标签的发信日期时才用
+  const bareDateCandidates = [];
+
+  const pageBottom =
+    options.imageHeight ||
+    safeLines.reduce((m, l) => Math.max(m, l.bottom || 0), 1);
+
   safeLines.forEach((line) => {
+    if (
+      BARE_DATE_LINE_RE.test(normalize(line.text)) &&
+      line.top < pageBottom * 0.35
+    ) {
+      // dateParser 收的是整个 line 对象（它内部要读 line.text），不是字符串
+      const bare = dateParser(line);
+      if (bare) {
+        bareDateCandidates.push({
+          value: bare,
+          box: line,
+          anchorText: normalize(line.text),
+          relation: 'letterhead',
+          // 比任何带标签的都低，保证标签优先
+          score: 30 - line.top / pageBottom,
+          confidence: line.confidence
+        });
+      }
+    }
+
+    /*
+     * 先判发信日期。
+     *
+     * 这一行本来就会被 DATE_ANCHOR_BLOCKERS 挡掉（那是为了不让它冒充截止日），
+     * 所以必须在那之前把它捡出来，否则这个日期就永远丢了。
+     *
+     * 命中之后直接 return —— 同一行不能既当发信日期又当截止日。
+     */
+    const stmtAnchor = matchAnchor(
+      line.text,
+      STATEMENT_DATE_ANCHORS,
+      STATEMENT_ANCHOR_BLOCKERS
+    );
+
+    if (stmtAnchor) {
+      const stmtHit = findValueNearAnchor(line, safeLines, dateParser);
+      if (stmtHit) {
+        statementCandidates.push({
+          value: stmtHit.value,
+          box: stmtHit.line,
+          anchorText: normalize(line.text),
+          relation: stmtHit.relation,
+          score: stmtAnchor.weight + stmtHit.score * 0.3,
+          confidence: stmtHit.line.confidence
+        });
+      }
+      return;
+    }
+
     const anchor = matchAnchor(line.text, DATE_ANCHORS, DATE_ANCHOR_BLOCKERS);
     if (!anchor) return;
 
@@ -1938,7 +2097,72 @@ export function extractLetterFields(lines, options = {}) {
   });
 
   dateCandidates.sort((a, b) => b.score - a.score);
-  const dueDate = dateCandidates[0] || null;
+
+  /*
+   * 一张单子上可能印着好几个到期日。
+   * OC 房产税单是最典型的：
+   *     FIRST INSTALLMENT is due in full on November 1, 2024
+   *     deadline to pay without penalty is December 10, 2024
+   *     SECOND INSTALLMENT is due in full on February 1, 2025
+   *     deadline to pay without penalty is April 10, 2025
+   *
+   * 原来只取分数最高的那个。这几行用的是同一个锚点词、权重一模一样，
+   * 谁排第一纯粹看 hit.score 的零头 —— 实测选中了 2025年2月1日，
+   * 也就是**第二期**。对老人说「请在 2025年2月1日 之前处理」，
+   * 而真正会罚 10% 的是 2024年12月10日。
+   *
+   * 老人要的永远是「下一个该做事的日子」，不是分数最高的那个日子。
+   * 所以在**分数接近的候选**里，挑今天之后最早的那一个。
+   *
+   * 限定「分数接近」（差 20 分以内）很重要：不能让一个弱锚点
+   * 只因为日期更近就顶掉强锚点。强弱差距大的时候，还是信锚点。
+   */
+  const todayIso = new Date(
+    (options.today || new Date()).getTime()
+  )
+    .toISOString()
+    .slice(0, 10);
+
+  const topScore = dateCandidates.length ? dateCandidates[0].score : 0;
+
+  const contenders = dateCandidates.filter((c) => c.score >= topScore - 20);
+
+  /*
+   * 信头裸日期不能是「已经被某个标签认领过的值框」。
+   *
+   * 「Due Date | 12/10/2024」这种两个框的排版里，右边那个框
+   * 本身就是一行光秃秃的日期，又在页面上方 —— 会被信头规则抓走，
+   * 于是同一个日期既是截止日又成了发信日期。
+   * 正是这次要消灭的那种混淆。
+   */
+  const claimedBoxes = new Set(
+    [...dateCandidates, ...statementCandidates].map((c) => c.box)
+  );
+
+  for (let i = bareDateCandidates.length - 1; i >= 0; i -= 1) {
+    if (claimedBoxes.has(bareDateCandidates[i].box)) {
+      bareDateCandidates.splice(i, 1);
+    }
+  }
+
+  const upcoming = contenders
+    .filter((c) => c.value >= todayIso)
+    .sort((a, b) => (a.value < b.value ? -1 : a.value > b.value ? 1 : 0));
+
+  const dueDate = upcoming[0] || dateCandidates[0] || null;
+
+  const multipleDeadlines =
+    new Set(contenders.map((c) => c.value)).size > 1;
+
+  addCheck(
+    'due_date_single',
+    !multipleDeadlines,
+    multipleDeadlines
+      ? `信上有多个到期日（${Array.from(new Set(contenders.map((c) => c.value)))
+          .sort()
+          .join(' / ')}），取今天之后最近的 ${dueDate ? dueDate.value : '—'}`
+      : 'ok'
+  );
 
   addCheck(
     'due_date_anchor_found',
@@ -1978,6 +2202,79 @@ export function extractLetterFields(lines, options = {}) {
   );
 
   const dueDateTrusted = Boolean(dueDate && dateConfidenceOk && !dueDateStale);
+
+  // ---------------- 发信日期 ----------------
+  statementCandidates.sort((a, b) => b.score - a.score);
+  bareDateCandidates.sort((a, b) => b.score - a.score);
+
+  /*
+   * 带标签的优先。只有一条带标签的都没有，才用信头那个裸日期。
+   * 顺序不能反 —— 裸日期是猜出来的，标签是信上白纸黑字写的。
+   */
+  const statementDate =
+    statementCandidates[0] || bareDateCandidates[0] || null;
+
+  const statementConfidenceOk =
+    statementDate &&
+    (statementDate.confidence === null || statementDate.confidence >= 60);
+
+  addCheck(
+    'statement_date_confidence',
+    !statementDate || Boolean(statementConfidenceOk),
+    statementDate && statementDate.confidence !== null
+      ? `${statementDate.confidence.toFixed(1)}%`
+      : 'n/a'
+  );
+
+  /*
+   * 发信日期不可能在未来 —— 信已经寄到你手上了。
+   * 留 2 天余量：印刷日和邮戳日偶尔会差一点，时区也会差一天。
+   * 超出就说明读错了（多半是年份认岔了）。
+   */
+  const statementDaysOut = statementDate
+    ? Math.round(
+        (new Date(`${statementDate.value}T00:00:00Z`).getTime() -
+          (options.today || new Date()).getTime()) /
+          86400000
+      )
+    : null;
+
+  const statementInFuture = statementDaysOut !== null && statementDaysOut > 2;
+
+  addCheck(
+    'statement_date_not_future',
+    !statementInFuture,
+    statementInFuture
+      ? `发信日期比今天还晚 ${statementDaysOut} 天，不可能，不采信`
+      : 'ok'
+  );
+
+  /*
+   * 信总是先写、后到期。发信日期晚于截止日期，一定有一个读错了。
+   * 这时候丢掉发信日期而不是截止日期 —— 截止日的锚点词强得多
+   * （payment due date 权重 100），而且截止日错了后果更重。
+   */
+  const statementAfterDue = Boolean(
+    statementDate &&
+      dueDate &&
+      dueDateTrusted &&
+      statementDate.value > dueDate.value
+  );
+
+  addCheck(
+    'statement_date_before_due',
+    !statementAfterDue,
+    statementAfterDue
+      ? `发信日期 ${statementDate.value} 晚于截止日期 ${dueDate.value}，不采信发信日期`
+      : 'ok'
+  );
+
+  const statementDateTrusted = Boolean(
+    statementDate &&
+      statementConfidenceOk &&
+      !statementInFuture &&
+      !statementAfterDue
+  );
 
   // ---------------- 汇总 ----------------
   /*
@@ -2074,6 +2371,10 @@ export function extractLetterFields(lines, options = {}) {
     },
     explicitNoAmountDue: Boolean(explicitNoAmountDue),
     dueDate: { value: dueDate ? dueDate.value : null, trusted: dueDateTrusted },
+    statementDate: {
+      value: statementDate ? statementDate.value : null,
+      trusted: statementDateTrusted
+    },
     today: options.today || new Date()
   });
 
@@ -2144,6 +2445,22 @@ export function extractLetterFields(lines, options = {}) {
           trusted: dueDateTrusted
         }
       : { value: null, trusted: false, isPaymentDemand: false, onAutopay: false },
+
+    /*
+     * 发信日期跟截止日期分开放，永远不合并。
+     * 前端也必须分开显示 —— 这两个日期挨着放在一起，
+     * 老人很容易把「信是 10月19日 写的」看成「10月19日 之前要交」。
+     */
+    statementDate: statementDate
+      ? {
+          value: statementDate.value,
+          box: statementDate.box,
+          anchorText: statementDate.anchorText,
+          relation: statementDate.relation,
+          confidence: statementDate.confidence,
+          trusted: statementDateTrusted
+        }
+      : { value: null, trusted: false },
     explicitNoAmountDue,
     autopay: {
       confirmed: autopayConfirmed,
@@ -2428,6 +2745,17 @@ function buildLayer0(fields, context) {
     uncertain.push('截止日期没能确认。');
   }
 
+  /*
+   * ---- 6. 这封信什么时候写的 ----
+   *
+   * 单独一句、单独一个框，措辞里刻意不出现「之前」「要」这类字眼，
+   * 免得老人把它读成一个期限。
+   */
+  const sentOn =
+    fields.statementDate && fields.statementDate.trusted && fields.statementDate.value
+      ? `这封信写于 ${formatDateCn(fields.statementDate.value)}。`
+      : null;
+
   // ---- 兜底建议 ----
   //
   // 最重要的一条原则：宁可承认看不准，
@@ -2468,6 +2796,7 @@ function buildLayer0(fields, context) {
     gist,
     howMuch,
     whenDue,
+    sentOn,
     uncertain,
     advice,
     highlights: [
@@ -2476,6 +2805,15 @@ function buildLayer0(fields, context) {
         : null,
       fields.dueDate.trusted && fields.dueDate.box
         ? { kind: 'dueDate', box: fields.dueDate.box, label: '截止日期' }
+        : null,
+      fields.statementDate &&
+      fields.statementDate.trusted &&
+      fields.statementDate.box
+        ? {
+            kind: 'statementDate',
+            box: fields.statementDate.box,
+            label: '发信日期'
+          }
         : null,
       fields.sender.box
         ? { kind: 'sender', box: fields.sender.box, label: '寄件机构' }
@@ -2514,6 +2852,12 @@ function buildSafePayload(fields, sumRelation, columnValues) {
 
     amount_due: fields.amount.trusted ? fields.amount.value : null,
     due_date: fields.dueDate.trusted ? fields.dueDate.value : null,
+
+    // 发信日期和到期日一样，是关于这封信的事实，不是关于这个人的
+    statement_date:
+      fields.statementDate && fields.statementDate.trusted
+        ? fields.statementDate.value
+        : null,
 
     // 只有数字，不带任何描述文字 —— 描述里可能夹带姓名或地址
     line_item_amounts: sumRelation

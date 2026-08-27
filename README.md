@@ -35,25 +35,38 @@ child, not the elder.
 
 | | |
 |---|---|
-| **Classify** | 26 letter categories (electric / gas / water / auto / home / life insurance / Medi-Cal / Medicare / SSA / court …) — utilities and insurance are kept **separate**, never lumped together |
-| **Identify sender** | 47 known organizations, abbreviated where an abbreviation exists (SCE, AT&T, HOA) |
+| **Classify** | electricity / gas / water / auto / home / life insurance / Medi-Cal / Medicare / SSA / court and more — utilities and insurance are kept **separate**, never lumped together |
+| **Identify sender** | a dictionary of known organizations, abbreviated where an abbreviation exists (SCE, AT&T, HOA) |
 | **Extract the amount** | and distinguish **three states**: 要交 / 自动扣款 / 不用交 (including credit balances) |
-| **Extract the due date** | and correctly say *"this letter has no deadline"* rather than inventing one |
+| **Extract two different dates** | the **due date** (act before this) and the **statement date** (when the letter was written) — shown in separate boxes, never merged. Confusing them is the single easiest way to make an elder act on a deadline that doesn't exist |
+| **Say "no deadline" when there is none** | rather than inventing one from whatever date it can find |
 | **Flag urgency** | 红 · 橙 · 黄 · 绿, with `‼️` for the most urgent. The wording is generated from the actual reason, not picked from a canned list per level |
-| **Recognize subtypes** | 15 of them — MSN, ANOC, Medi-Cal annual renewal, HOA lien notice, jury summons … |
-| **Screen for scams** | 9 signal patterns |
+| **Recognize subtypes** | MSN, ANOC, Medi-Cal annual renewal, HOA lien notice, jury summons … |
+| **Screen for scams** | a set of signal patterns |
 | **Compute redaction** | which lines could safely be sent to an external model — **computed only, nothing is sent** |
 
 ### Accuracy — measured, not estimated
 
+Every number below is regenerated from the source and the test suite by
+`scripts/update-docs.mjs`. None of them are typed by hand — see
+[`docs/how-it-works.md`](docs/how-it-works.md) for the current run and the
+dictionary sizes behind it.
+
+<!-- AUTO:BEGIN README 分数由 scripts/update-docs.mjs 生成，不要手改 -->
+
 | Suite | Result |
 |---|---|
-| **Real bills, hand-labeled ground truth** | 6 letters × 4 fields — **24/24** |
-| Synthetic letters | 17 / 17 |
-| Verbatim wording from official CMS / DHCS / federal court PDFs | 6 / 6 |
-| Category splitting (electric vs gas vs water, auto vs home vs life) | 9 / 9 |
-| Self-consistency (the summary may not assert what it didn't verify) | 0 contradictions |
-| Redaction assertions | 15 / 15 |
+| **Real bills, hand-labeled ground truth** | 6 letters × 5 fields — category 6/6 100%   amount 6/6 100%   payment 6/6 100%   due date 6/6 100%   statement date 5/6 83% |
+| `fieldExtractor.test.mjs` | 17 通过 / 0 失败 |
+| `fieldExtractor.real.test.mjs` | 真实措辞 6 通过 / 0 失败 |
+| `fieldExtractor.split.test.mjs` | 9 通过 / 0 失败 |
+| `fieldExtractor.consistency.test.mjs` | 矛盾 0 处 |
+| `contentRedactor.hoag.test.mjs` | 15 通过 / 0 失败 |
+| `fieldExtractor.tier1.test.mjs` | 第一梯队 4 通过 / 0 失败 |
+
+Dictionary sizes: 已知机构 40 · 信件类别 26 · 信件子类型 15 · 金额锚点 24 · 日期锚点 27 · 句式词典 30 · 诈骗特征 9 · 交叉校验 18.
+
+<!-- AUTO:END -->
 
 Measured OCR confidence: **97.8%** on numeric tokens, **99.3%** on dates.
 **OCR is not the bottleneck** — 14 of the 27 bugs fixed so far were in the extraction layer, which

@@ -47,3 +47,24 @@ done
 
 > 银行和电信这两类建议直接用你自己的真实账单测 —— 那才是最接近老人
 > 手里那张纸的东西。测之前先确认 `.gitignore` 里没漏掉它们。
+
+
+---
+
+## 第一梯队（OC 老人最常收、最容易读错的四类）
+
+逐字原文已做成 `frontend/src/utils/fieldExtractor.tier1.test.mjs`。
+**下面的 PDF 我这边只能取到文字、下载不了文件**，点开另存到本目录即可，
+它们都是官方发布的样本/公告，姓名金额是占位符，可以放心提交进 git。
+
+| 类别 | 来源 | 链接 |
+|---|---|---|
+| 保险给付说明 EOB | CMS 官方样本 | https://www.cms.gov/files/document/11819-sample-explanation-benefits-508.pdf |
+| 房产税 | OC 财政局法定公告 | https://www.octreasurer.gov/sites/ttc/files/2024-10/OC%20Register%20CNSB%203860184.pdf |
+| 房产税（版面样张） | OC 财政局税单样本页 | https://octreasurer.gov/property-tax/secured-and-unsecured-tax-bill-samples |
+| 白卡年度复审 | DHCS MC 216 说明 | https://www.dhcs.ca.gov/wp-content/uploads/2025/10/I15-14.pdf |
+| Medicare ANOC | Kaiser 2026 ANOC 全文 | https://healthy.kaiserpermanente.org/content/dam/kporg/final/documents/health-plan-documents/anoc/medicare/2026/annual-notice-of-changes-high-d-mas-dc.pdf |
+| Medicare 模板 | CMS CY2027 全套模板（zip） | https://www.cms.gov/files/zip/cy-2027-model-materials-updated.zip |
+
+存进来之后，按 `docs/how-it-works.md` 的「加一封新信的完整步骤」跑 OCR、标真值，
+就能把它们接进 `accuracy.test.mjs` 那条真图路径。

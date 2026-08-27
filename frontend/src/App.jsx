@@ -5028,7 +5028,10 @@ export default function App() {
                             .howMuch ||
                             letterFields
                               .layer0
-                              .whenDue) && (
+                              .whenDue ||
+                            letterFields
+                              .layer0
+                              .sentOn) && (
                             <div className="grid gap-3 sm:grid-cols-2 pt-2">
 
                               {letterFields
@@ -5060,11 +5063,48 @@ export default function App() {
                                     截止日期
                                   </p>
 
+                                  <p className="text-sm font-bold text-rose-700 mb-1">
+                                    要在这天之前办
+                                  </p>
+
                                   <p className="text-2xl font-black text-slate-900">
                                     {
                                       letterFields
                                         .layer0
                                         .whenDue
+                                    }
+                                  </p>
+
+                                </div>
+                              )}
+
+                              {/*
+                                * 发信日期单独一个框，而且刻意做得比上面两个「安静」——
+                                * 灰底、细边框、小字号。
+                                *
+                                * 两个日期挨在一起，老人很容易把
+                                * 「信是 10月19日 写的」看成「10月19日 之前要交」。
+                                * 所以除了分框，还写明「不用在这天之前办什么」——
+                                * 光靠标题「发信日期」四个字不够，那是行话。
+                                */}
+                              {letterFields
+                                .layer0
+                                .sentOn && (
+                                <div className="bg-slate-100 border-2 border-slate-300 rounded-2xl p-5">
+
+                                  <p className="text-base font-black text-slate-600 mb-1">
+                                    发信日期
+                                  </p>
+
+                                  <p className="text-sm font-bold text-slate-500 mb-1">
+                                    不用在这天之前办什么
+                                  </p>
+
+                                  <p className="text-xl font-black text-slate-700">
+                                    {
+                                      letterFields
+                                        .layer0
+                                        .sentOn
                                     }
                                   </p>
 

@@ -8,7 +8,9 @@
     "line_items_sum": 99.36,
     "today": "2024-02-10",
     "amount_shown": 99.36,
-    "payment_action": "pay"
+    "payment_action": "pay",
+    "statement_date": null,
+    "statement_date_note": "第5页只有 Billing period 01/06/24-02/05/24，是区间不是发信日，无发信日期"
   },
   "SCE_Letter": {
     "note": "SCE 写给加州公用事业委员会的监管公函，不是账单",
@@ -18,7 +20,9 @@
     "due_date": null,
     "today": "2024-04-25",
     "amount_shown": null,
-    "payment_action": "none"
+    "payment_action": "none",
+    "statement_date": "2024-04-24",
+    "statement_date_note": "信头无标签、孤零零一行 April 24, 2024 —— 政府/法律信的典型写法"
   },
   "hoag-invoice-mychart": {
     "note": "医院账单缴费联，有 AMOUNT YOU OWE，无到期日；10/19/18 是账单日",
@@ -29,7 +33,8 @@
     "statement_date": "2018-10-19",
     "today": "2018-10-25",
     "amount_shown": 333.33,
-    "payment_action": "pay"
+    "payment_action": "pay",
+    "statement_date_note": "STATEMENT DATE 10/19/18"
   },
   "statefarm_bill": {
     "note": "AMOUNT DUE: None + BILLED THROUGH SFPP。165 是年度保费。不该说「要交」",
@@ -40,7 +45,9 @@
     "autopay": true,
     "today": "2024-04-20",
     "amount_shown": 165,
-    "payment_action": "autopay"
+    "payment_action": "autopay",
+    "statement_date": "2023-03-21",
+    "statement_date_note": "页脚小字 Prepared MAR 21 2023。OCR 读成「Ppeni MAR 21 2021」—— 锚点词烂了，年份也错了两年，所以抽不出。宁可不显示"
   },
   "water_bill": {
     "note": "BY: 04/30/2024 是到期日；RECURRING PAYMENT - DO NOT PAY 表示已自动扣款，不该说「要交」",
@@ -51,7 +58,9 @@
     "autopay": true,
     "today": "2024-04-05",
     "amount_shown": 71.2,
-    "payment_action": "autopay"
+    "payment_action": "autopay",
+    "statement_date": "2024-03-31",
+    "statement_date_note": "Bill Date: 03/31/2024，和到期日 BY: 04/30/2024 是两个不同的日期"
   },
   "att_bill": {
     "note": "AT&T 无线账单。Balance $6.33CR 是贷记余额（公司欠客户），并明写 Payment is Not Required",
@@ -60,6 +69,8 @@
     "amount_shown": -6.33,
     "payment_action": "none",
     "due_date": null,
-    "today": "2019-02-05"
+    "today": "2019-02-05",
+    "statement_date": null,
+    "statement_date_note": "只有 Bill Cycle Date: 01/25/19-01/27/19，是区间不是单个发信日"
   }
 }

@@ -28,3 +28,7 @@ frontend/src/utils/private_*.json
 
 # 待手动删除（工具没有删除权限，移到这里）
 _to_delete/
+
+# 临时调试脚本
+_probe*.mjs
+_dbg*.mjs
