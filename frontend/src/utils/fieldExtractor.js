@@ -384,6 +384,21 @@ const DATE_ANCHORS = [
   { re: /\bdelinquen(t|cy)\s*(date|after)\b/i, weight: 80 },
 
   /*
+   * 罚金措辞反推到期日。
+   *
+   * WM 垃圾账单：「Your Payment is Due」那行被拍糊了，但信上另有一句
+   *   If payment is received after
+   *   07/02/2025: $92.05
+   * 「这天之后收到就加钱」= 这天就是最后期限。
+   *
+   * 这类措辞印在正文里，不像表头那样容易被裁掉，
+   * 所以是到期日最可靠的一条后备通路。
+   * 权重压在 delinquent(80) 附近 —— 有正牌 due date 时永远让位给它。
+   */
+  { re: /\bif\s*(full\s*)?payment\s*is\s*received\s*after\b/i, weight: 84 },
+  { re: /\bif\s*(paid|received|postmarked)\s*after\b/i, weight: 82 },
+
+  /*
    * 房产税、保费、分期账单的标准措辞：
    *   The FIRST INSTALLMENT is due in full on November 1, 2024.
    * 原来一条锚点都不命中，于是 11月1日 压根没进候选，
@@ -620,9 +635,21 @@ const findValueNearAnchor = (anchorLine, lines, parseValue) => {
       continue;
     }
 
-    // --- 情况 2：正下方 ---
+    /*
+     * --- 情况 2：正下方 ---
+     *
+     * 容差原来是 unit*0.2，那是按扫描件的正矩形排版定的。
+     * 手机拍的信是斜的：WM 账单上
+     *   「If payment is received after」 bottom=149
+     *   「07/02/2025: $92.05」          top =140
+     * 下一行的顶比上一行的底还高了 9 像素 —— 差 1.6 像素没进容差，
+     * 于是整个到期日就丢了。
+     *
+     * 放宽到 unit*0.5。同行右侧（情况 1）先判并 continue，
+     * 而且这里仍要求水平重叠 > 0.25，所以不会把右边的邻居误当成下一行。
+     */
     if (
-      line.top >= anchorLine.bottom - unit * 0.2 &&
+      line.top >= anchorLine.bottom - unit * 0.5 &&
       horizontalOverlapRatio(anchorLine, line) > 0.25
     ) {
       const gap = (line.top - anchorLine.bottom) / unit;
@@ -2429,11 +2456,36 @@ export function extractLetterFields(lines, options = {}) {
       : 'ok'
   );
 
+  /*
+   * 信头兜底日期不能和截止日期是同一天。
+   *
+   * WM 账单上「Jul 02, 2025」孤零零印在最上方，它的标签
+   * 「Your Payment is Due」被拍糊了。信头兜底规则于是把它当成发信日期，
+   * 对老人说「不用在这天之前办什么」—— 正好把最后期限说反了。
+   *
+   * 带标签的发信日期不受影响（relation 只在兜底时才是 letterhead）。
+   */
+  const bareDateIsActuallyDue = Boolean(
+    statementDate &&
+      statementDate.relation === 'letterhead' &&
+      dueDate &&
+      statementDate.value === dueDate.value
+  );
+
+  addCheck(
+    'letterhead_date_not_due_date',
+    !bareDateIsActuallyDue,
+    bareDateIsActuallyDue
+      ? `信头日期 ${statementDate.value} 就是截止日期，不当发信日期用`
+      : 'ok'
+  );
+
   const statementDateTrusted = Boolean(
     statementDate &&
       statementConfidenceOk &&
       !statementInFuture &&
-      !statementAfterDue
+      !statementAfterDue &&
+      !bareDateIsActuallyDue
   );
 
   // ---------------- 汇总 ----------------

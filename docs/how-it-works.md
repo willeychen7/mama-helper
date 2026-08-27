@@ -480,7 +480,7 @@ HOA 按规约算，每家都不同，写一个数字出去就是编。不填的�
 | 语句一致性 | `fieldExtractor.consistency.test.mjs` | 矛盾 0 处 |
 | 脱敏断言 | `contentRedactor.hoag.test.mjs` | 15 通过 / 0 失败 |
 | 第一梯队真实信 | `fieldExtractor.tier1.test.mjs` | 第一梯队 4 通过 / 0 失败 |
-| 手机实拍 | `fieldExtractor.photo.test.mjs` | 手机实拍 6 通过 / 0 失败 |
+| 手机实拍 | `fieldExtractor.photo.test.mjs` | 手机实拍 7 通过 / 0 失败 |
 | 朗读安全 | `speech.test.mjs` | 朗读 16 通过 / 0 失败 |
 | 金额佐证 | `amount.corroboration.test.mjs` | 金额佐证 4 通过 / 0 失败 |
 | 版面还原 | `layoutText.test.mjs` | 版面还原 8 通过 / 0 失败 |
@@ -495,10 +495,10 @@ HOA 按规约算，每家都不同，写一个数字出去就是编。不填的�
 | 信件类别 | 26 |
 | 信件子类型 | 15 |
 | 金额锚点 | 25 |
-| 日期锚点 | 27 |
+| 日期锚点 | 29 |
 | 句式词典 | 30 |
 | 诈骗特征 | 9 |
-| 交叉校验 | 18 |
+| 交叉校验 | 19 |
 | 知识库词条 | 38 |
 
 <!-- AUTO:END -->

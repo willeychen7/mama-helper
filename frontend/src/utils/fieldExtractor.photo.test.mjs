@@ -22,9 +22,9 @@
  *
  * 不是「抽对金额」——信息不全的照片，抽对了反而是瞎猜。
  * 通过的标准是三条：
- *   1. 绝不说错（不能报出一个金额或日期）
+ *   1. 绝不说错（金额和日期要么有出处，要么不报）
  *   2. 绝不乱认（机构宁可「未知」，不能显示成 $87.05）
- *   3. 告诉老人怎么补救（给出重拍提示）
+ *   3. 缺东西时告诉老人怎么补救；不缺就别啰嗦
  */
 import fs from 'fs';
 const { extractLetterFields } = await import('./fieldExtractor.js');
@@ -77,10 +77,23 @@ check(
   f.amount.trusted && Math.abs(f.amount.value - 87.05) < 0.005 && f.amount.isPaymentDemand,
   `trusted=${f.amount.trusted} value=${f.amount.value}`
 );
+/*
+ * 截止日期：标签被拍缺了，但信里另有一句
+ *   「If payment is received after / 07/02/2025: $92.05」
+ * 罚金措辞把最后期限说清楚了，所以这个日期是抽得出来的，不是猜的。
+ *
+ * 反过来还要确认：这个日期不能同时被当成发信日期
+ * ——「不用在这天之前办什么」会把最后期限说反。
+ */
 check(
-  '没有报出截止日期（Your Payment is Due 那行被拍缺了，无从验证）',
-  !f.dueDate.trusted,
+  '从罚金措辞里拿到截止日期 2025-07-02',
+  f.dueDate.value === '2025-07-02',
   `报了 ${f.dueDate.value}`
+);
+check(
+  '同一个日期没有被当成发信日期',
+  !f.statementDate.trusted,
+  `发信日期报了 ${f.statementDate.value}`
 );
 
 // 2 · 绝不乱认
@@ -93,7 +106,15 @@ check(
 
 // 3 · 告诉老人怎么补救
 const hints = l0.retakeHints || [];
-check('给出了重拍提示', hints.length > 0, '一条提示都没有');
+/*
+ * 金额和日期都拿到了，就不该再让老人重拍。
+ * 提示只有在真的缺东西时才出现 —— 无谓的重拍要求会把人劝退。
+ */
+check(
+  '金额和日期都拿到了，不再要求重拍',
+  hints.length === 0,
+  '仍然提示：' + hints.map((h) => h.field).join(',')
+);
 check(
   '提示只针对金额和日期，没有要求补拍隐私信息',
   hints.every((h) => /^(amount|dueDate|amount\+dueDate)$/.test(h.field)),
