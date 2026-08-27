@@ -15,6 +15,7 @@ import { execSync } from 'child_process';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const UTILS = path.join(ROOT, 'frontend/src/utils');
+const KNOWLEDGE = path.join(ROOT, 'frontend/src/knowledge');
 const DOC = path.join(ROOT, 'docs/how-it-works.md');
 const README = path.join(ROOT, 'README.md');
 const CHECK = process.argv.includes('--check');
@@ -45,6 +46,11 @@ const dict = [
   ['句式词典', countRe(between('PHRASE_RULES', '\n];'))],
   ['诈骗特征', countRe(between('SCAM_SIGNALS', '];'))],
   ['交叉校验', (src.match(/addCheck\(/g) || []).length],
+  [
+    '知识库词条',
+    JSON.parse(fs.readFileSync(path.join(KNOWLEDGE, 'knowledge.json'), 'utf8')).entries
+      .length
+  ],
 ];
 
 // ---------- 真值覆盖 ----------
@@ -52,9 +58,9 @@ const gt = JSON.parse(fs.readFileSync(path.join(UTILS, 'ground_truth.json'), 'ut
 const letters = Object.keys(gt);
 
 // ---------- 跑测试拿真实分数 ----------
-const run = (file) => {
+const run = (file, cwd = UTILS) => {
   try {
-    return execSync(`node ${file}`, { cwd: UTILS, encoding: 'utf8', timeout: 120000 });
+    return execSync(`node ${file}`, { cwd, encoding: 'utf8', timeout: 120000 });
   } catch (e) {
     return (e.stdout || '') + (e.stderr || '');
   }
@@ -80,9 +86,12 @@ const suites = [
   ['手机实拍', 'fieldExtractor.photo.test.mjs'],
   ['朗读安全', 'speech.test.mjs'],
   ['金额佐证', 'amount.corroboration.test.mjs'],
+  ['版面还原', 'layoutText.test.mjs'],
+  ['脱敏召回', 'contentRedactor.recall.test.mjs'],
+  ['知识库防线', 'knowledge.test.mjs', KNOWLEDGE],
 ];
-const suiteRows = suites.map(([name, file]) => {
-  const out = run(file);
+const suiteRows = suites.map(([name, file, cwd]) => {
+  const out = run(file, cwd);
   const m = out.match(/=====\s*(.+?)\s*=====/);
   return `| ${name} | \`${file}\` | ${m ? m[1] : '未通过'} |`;
 });

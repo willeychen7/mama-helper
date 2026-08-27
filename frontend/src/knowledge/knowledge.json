@@ -1,0 +1,1174 @@
+{
+ "_comment": [
+  "美国信件理解知识库 —— 存的是「这类信是什么」，不是「这封信的答案」。",
+  "",
+  "铁律：这里**绝不允许出现具体的金额、年份、或某一封信的事实**。",
+  "金额、日期、机构名永远来自 OCR 的本地抽取和校验，运行时才拼进去。",
+  "一旦事实进了知识库，它就从「知识」变成了「可能过期的谎话」，而且无法验算。",
+  "",
+  "deadlineRule 是**可选**字段，只有写在法律法规里、全州或全国统一的期限才填，",
+  "而且必须写明 legalBasis。例：加州房产税 11 月 1 日到期、12 月 10 日之后罚 10%。",
+  "「这家公司通常给 30 天」这种不填 —— 每家机构、每个账户都不同，写出去就是编。",
+  "不填的时候，界面自然就只说「没在这封信上读到期限」，不多嘴。",
+  "",
+  "reviewed=false 表示内容尚未经人工对照官方来源核实过。",
+  "knowledge.test.mjs 会机械检查上面这条铁律。"
+ ],
+ "version": 1,
+ "entries": [
+  {
+   "id": "MEDICARE_ANOC",
+   "group": "medical",
+   "cn": "Medicare 明年计划变更通知（ANOC）",
+   "en": "Medicare Annual Notice of Change",
+   "whatItIs": "您现在参加的 Medicare 计划，寄来告诉您**明年**的保费、自付额、药品名单会有哪些变化。它不是账单。",
+   "purpose": "法规要求保险公司每年秋天把明年的变化提前告诉您，好让您在开放注册期内决定要不要换计划。",
+   "typicalAction": "翻到「明年有什么变化」那几页，重点看三样：每月保费、自付上限、您常吃的药还在不在名单里。如果都能接受，什么都不用做，明年自动续。",
+   "risks": "扔掉不看的话，明年 1 月可能突然发现保费涨了、或者常吃的药不报了，而那时候已经过了换计划的窗口。",
+   "signals": {
+    "strong": [
+     "annual\\s*notice\\s*of\\s*change",
+     "\\bANOC\\b"
+    ],
+    "weak": [
+     "evidence\\s*of\\s*coverage",
+     "\\bEOC\\b",
+     "october\\s*15",
+     "december\\s*7",
+     "medicare\\s*advantage",
+     "part\\s*d"
+    ]
+   },
+   "notABill": true,
+   "baseUrgency": "orange",
+   "sources": [
+    {
+     "title": "Kaiser 2026 ANOC 原件",
+     "url": "https://healthy.kaiserpermanente.org/content/dam/kporg/final/documents/health-plan-documents/anoc/medicare/2026/annual-notice-of-changes-high-d-mas-dc.pdf"
+    },
+    {
+     "title": "Medicare 官方：Plan Annual Notice of Change",
+     "url": "https://www.medicare.gov/basics/forms-publications-mailings/mailings/costs-and-coverage/upcoming-plan-changes"
+    }
+   ],
+   "reviewed": false,
+   "deadlineRule": {
+    "text": "计划变更通知必须在每年 9 月 30 日前送达；改换计划的窗口是每年 10 月 15 日到 12 月 7 日，全国统一。",
+    "legalBasis": "CMS Medicare Advantage / Part D 年度流程规定（待核实具体条文）"
+   }
+  },
+  {
+   "id": "MEDICARE_ADVANTAGE_NOTICE",
+   "group": "medical",
+   "cn": "Medicare Advantage 计划通知",
+   "en": "Medicare Advantage Plan Notice",
+   "whatItIs": "Medicare Advantage（也叫 Part C，通常是私营保险公司承办的红蓝卡计划）寄来的各类通知：网络医院变动、福利调整、需要您确认的信息等。",
+   "purpose": "告知计划内容或网络的变化，有时需要您回应。",
+   "typicalAction": "先看信里有没有「需要您回复」的字样。多数是通知性质，不用做什么；一旦提到医生或医院退出网络，要尽快确认自己看的医生还在不在。",
+   "risks": "如果常看的医生退出了网络而没注意，下次就诊可能变成自费。",
+   "signals": {
+    "strong": [
+     "medicare\\s*advantage",
+     "\\bpart\\s*c\\b"
+    ],
+    "weak": [
+     "provider\\s*network",
+     "plan\\s*benefits",
+     "\\bHMO\\b",
+     "\\bPPO\\b"
+    ]
+   },
+   "notABill": true,
+   "baseUrgency": "yellow",
+   "sources": [],
+   "reviewed": false
+  },
+  {
+   "id": "MEDICARE_PART_D",
+   "group": "medical",
+   "cn": "Medicare 处方药计划（Part D）通知",
+   "en": "Medicare Part D Notice",
+   "whatItIs": "处方药保险计划寄来的通知：药品名单变化、自付分档、或者「您今年的自付已经进入下一档」之类的提醒。",
+   "purpose": "让您知道药费怎么算、什么时候会变。",
+   "typicalAction": "查一下自己常吃的药还在不在名单（formulary）里。如果被移除了，尽快问医生有没有替代药，或者在开放注册期换计划。",
+   "risks": "常吃的药被移出名单而不知道，下次去药房可能要全额自付。",
+   "signals": {
+    "strong": [
+     "\\bpart\\s*d\\b",
+     "prescription\\s*drug\\s*plan",
+     "\\bPDP\\b"
+    ],
+    "weak": [
+     "formulary",
+     "drug\\s*(list|tier)",
+     "coverage\\s*gap",
+     "catastrophic\\s*coverage"
+    ]
+   },
+   "notABill": true,
+   "baseUrgency": "orange",
+   "sources": [],
+   "reviewed": false,
+   "deadlineRule": {
+    "text": "改换计划的窗口是每年 10 月 15 日到 12 月 7 日，全国统一。药品名单变动的通知期另有规定。",
+    "legalBasis": "CMS Part D 年度流程规定（待核实具体条文）"
+   }
+  },
+  {
+   "id": "MEDI_CAL_RENEWAL",
+   "group": "medical",
+   "cn": "白卡（Medi-Cal）年度复审",
+   "en": "Medi-Cal Annual Renewal",
+   "whatItIs": "加州医疗补助（Medi-Cal，俗称白卡）每年一次的资格复审。政府要重新确认您的收入和家庭情况，才能继续给您保险。",
+   "purpose": "确认您还符合资格。有些人的资料能自动核对，就不用寄表；需要您补充的才会寄这封信。",
+   "typicalAction": "**一定要填好寄回或在网上提交**，即使您觉得自己可能已经不符合资格也要交 —— 让政府来判断，不要自己放弃。表格上通常要签名。",
+   "risks": "**不回就会被停保。** 停保之后看病、拿药全部要自费，重新申请要花好几个月。这是这类信里后果最重的一种。",
+   "signals": {
+    "strong": [
+     "medi[-\\s]cal\\s*(renewal|redetermination)",
+     "annual\\s*redetermination",
+     "\\bMC\\s*2(10\\s*RV|16|17)\\b",
+     "your\\s*medi[-\\s]cal\\s*is\\s*up\\s*for\\s*renewal"
+    ],
+    "weak": [
+     "department\\s*of\\s*health\\s*care\\s*services",
+     "\\bDHCS\\b",
+     "keep\\s*your\\s*coverage",
+     "renewal\\s*form"
+    ]
+   },
+   "notABill": true,
+   "baseUrgency": "red",
+   "sources": [
+    {
+     "title": "DHCS 官方 MC 216 说明",
+     "url": "https://www.dhcs.ca.gov/wp-content/uploads/2025/10/I15-14.pdf"
+    }
+   ],
+   "reviewed": false
+  },
+  {
+   "id": "MEDI_CAL_RFI",
+   "group": "medical",
+   "cn": "白卡要求补充资料",
+   "en": "Medi-Cal Request for Information",
+   "whatItIs": "白卡在审核过程中发现资料不全，寄信要您补交某些证明（收入证明、身份证明、居住证明等）。",
+   "purpose": "补齐审核需要的材料。",
+   "typicalAction": "看清楚要的是哪几样材料，按期限交齐。不确定要交什么，打信上的电话问，或者去老人中心找人帮忙看。",
+   "risks": "不补交，申请会被拒或者保险被停。",
+   "signals": {
+    "strong": [
+     "request\\s*for\\s*information",
+     "we\\s*need\\s*more\\s*information",
+     "additional\\s*(information|documentation)\\s*(is\\s*)?(needed|required)"
+    ],
+    "weak": [
+     "medi[-\\s]cal",
+     "proof\\s*of\\s*(income|residence|identity)",
+     "verification"
+    ]
+   },
+   "notABill": true,
+   "baseUrgency": "red",
+   "sources": [],
+   "reviewed": false
+  },
+  {
+   "id": "CALOPTIMA_NOTICE",
+   "group": "medical",
+   "cn": "CalOptima 通知",
+   "en": "CalOptima Health Notice",
+   "whatItIs": "CalOptima 是**橙县**负责管理白卡（Medi-Cal）的机构，也承办部分 Medicare 计划。这是它寄来的通知。",
+   "purpose": "告知计划变动、医生分配、需要您确认或选择的事项。",
+   "typicalAction": "先看有没有「需要回复」或「请选择」的字样。涉及换医生、换计划的，通常有期限。",
+   "risks": "该选没选的话，系统会替您指定一个医生或计划，未必是您想要的。",
+   "signals": {
+    "strong": [
+     "caloptima"
+    ],
+    "weak": [
+     "orange\\s*county\\s*health",
+     "member\\s*services",
+     "medi[-\\s]cal"
+    ]
+   },
+   "notABill": true,
+   "baseUrgency": "orange",
+   "sources": [
+    {
+     "title": "CalOptima Health 官网",
+     "url": "https://www.caloptima.org/"
+    }
+   ],
+   "reviewed": false
+  },
+  {
+   "id": "EOB",
+   "group": "medical",
+   "cn": "保险给付说明（EOB）",
+   "en": "Explanation of Benefits",
+   "whatItIs": "**这不是账单。** 是保险公司在处理完一笔就诊费用之后，寄来告诉您：医院收了多少、保险付了多少、按规定还剩多少要您自己承担。",
+   "purpose": "让您核对保险有没有算对。真正要付钱的账单会由医院或诊所另外寄。",
+   "typicalAction": "跟医院后来寄来的账单**对一下数字**。两边对不上，或者您觉得这项本来该报销，就打保险公司电话申诉。",
+   "risks": "最常见的害处是把它当成账单**重复付一次钱**。另一种是发现算错了却拖过了申诉期限。",
+   "signals": {
+    "strong": [
+     "explanation\\s*of\\s*benefits",
+     "\\bEOB\\b",
+     "this\\s*is\\s*not\\s*a\\s*bill"
+    ],
+    "weak": [
+     "allowed\\s*(amount|charges)",
+     "paid\\s*by\\s*(insurer|plan)",
+     "patient\\s*responsibility",
+     "claim\\s*number",
+     "provider\\s*charges"
+    ]
+   },
+   "notABill": true,
+   "baseUrgency": "yellow",
+   "sources": [
+    {
+     "title": "CMS 官方 EOB 样本",
+     "url": "https://www.cms.gov/files/document/11819-sample-explanation-benefits-508.pdf"
+    },
+    {
+     "title": "CMS：How to read an explanation of benefits",
+     "url": "https://cms.gov/medical-bill-rights/help/guides/explanation-of-benefits"
+    }
+   ],
+   "reviewed": false
+  },
+  {
+   "id": "MEDICAL_BILL",
+   "group": "medical",
+   "cn": "医院 / 诊所账单",
+   "en": "Medical Bill",
+   "whatItIs": "医院、诊所或化验室寄来的账单，要您支付保险报销之后剩下的部分。",
+   "purpose": "收款。",
+   "typicalAction": "先跟保险公司寄来的 EOB 对一下数字，确认没有重复计费、没有该报没报的项目，再付。金额大的可以打电话问能不能分期，多数医院都有分期或减免方案。",
+   "risks": "拖着不管会被转给催收公司，可能影响信用记录。但**先核对再付**比急着付更重要 —— 医疗账单出错很常见。",
+   "signals": {
+    "strong": [
+     "amount\\s*you\\s*owe",
+     "patient\\s*(balance|responsibility|statement)",
+     "please\\s*remit\\s*payment"
+    ],
+    "weak": [
+     "guarantor",
+     "date\\s*of\\s*service",
+     "account\\s*number",
+     "medical\\s*center",
+     "hospital",
+     "clinic"
+    ]
+   },
+   "notABill": false,
+   "baseUrgency": "orange",
+   "sources": [],
+   "reviewed": false
+  },
+  {
+   "id": "INSURANCE_CLAIM",
+   "group": "medical",
+   "cn": "理赔通知",
+   "en": "Insurance Claim Notice",
+   "whatItIs": "保险公司关于某笔理赔申请的通知：批准、拒绝、或者需要补充材料。",
+   "purpose": "告知理赔结果或索要材料。",
+   "typicalAction": "如果是被拒，信上一定会写申诉的办法和期限 —— **被拒不等于最终结论，申诉成功的比例不低**。",
+   "risks": "以为被拒就没办法了，白白放弃申诉。",
+   "signals": {
+    "strong": [
+     "claim\\s*(denied|denial|approved|decision)",
+     "adverse\\s*benefit\\s*determination"
+    ],
+    "weak": [
+     "appeal",
+     "grievance",
+     "claim\\s*number",
+     "reconsideration"
+    ]
+   },
+   "notABill": true,
+   "baseUrgency": "orange",
+   "sources": [],
+   "reviewed": false
+  },
+  {
+   "id": "MEDICAL_RECORDS_REQUEST",
+   "group": "medical",
+   "cn": "病历索取 / 授权表",
+   "en": "Medical Records Request",
+   "whatItIs": "要求您签字授权，把病历给某一方（保险公司、律师、另一家医院）。",
+   "purpose": "取得您对披露病历的书面同意。",
+   "typicalAction": "**先看清楚要把病历给谁、给哪一段时间的记录。** 不认识对方或者没印象为什么要给，先别签，问清楚再说。",
+   "risks": "签了不该签的授权，等于把自己的医疗记录交出去。这类表格也常被冒用。",
+   "signals": {
+    "strong": [
+     "authorization\\s*(for|to)\\s*(release|disclose)",
+     "release\\s*of\\s*(medical\\s*)?(information|records)",
+     "\\bHIPAA\\b\\s*authorization"
+    ],
+    "weak": [
+     "protected\\s*health\\s*information",
+     "\\bPHI\\b",
+     "signature\\s*required"
+    ]
+   },
+   "notABill": true,
+   "baseUrgency": "yellow",
+   "sources": [],
+   "reviewed": false
+  },
+  {
+   "id": "IRS_NOTICE",
+   "group": "government",
+   "cn": "美国国税局（IRS）通知",
+   "en": "IRS Notice",
+   "whatItIs": "联邦税务局寄来的通知。信的右上角一定有个编号（CP 开头或 LTR 开头），那个编号决定了这封信是什么意思。",
+   "purpose": "告知报税有问题、欠税、退税调整，或者要求补充资料。",
+   "typicalAction": "**先找到右上角那个 CP/LTR 编号**，那是查清楚这封信性质的钥匙。IRS 官网可以按编号查。不要打信上的电话之前先核对 —— 冒充 IRS 的诈骗信极多。",
+   "risks": "真的 IRS 信不理会，会累积利息和罚金，严重的会扣工资或银行账户。但**冒充 IRS 的假信更常见** —— 真 IRS 从不用电话或短信要求立刻付款、更不会要礼品卡。",
+   "signals": {
+    "strong": [
+     "internal\\s*revenue\\s*service",
+     "\\bIRS\\b",
+     "notice\\s*CP\\d+",
+     "\\bLTR\\s*\\d+"
+    ],
+    "weak": [
+     "tax\\s*(year|return)",
+     "form\\s*1040",
+     "amount\\s*you\\s*owe",
+     "department\\s*of\\s*the\\s*treasury"
+    ]
+   },
+   "notABill": false,
+   "baseUrgency": "red",
+   "sources": [
+    {
+     "title": "IRS：Understanding Your IRS Notice or Letter",
+     "url": "https://www.irs.gov/individuals/understanding-your-irs-notice-or-letter"
+    }
+   ],
+   "reviewed": false
+  },
+  {
+   "id": "SSA_NOTICE",
+   "group": "government",
+   "cn": "社会安全局（SSA）通知",
+   "en": "Social Security Administration Notice",
+   "whatItIs": "社安局寄来的通知：每年的金额调整（COLA）、资格审核、多付要追回、或者福利变动。",
+   "purpose": "告知您的社安金有什么变化，或者要求您提供资料。",
+   "typicalAction": "看清楚是「通知」还是「要求回应」。涉及多付追回（overpayment）的**一定要回应** —— 可以申请免除或分期，但必须在期限内提出。",
+   "risks": "多付追回不处理，社安局会直接从每月的钱里扣，有些人一下子少一大半收入。",
+   "signals": {
+    "strong": [
+     "social\\s*security\\s*administration",
+     "\\bSSA\\b",
+     "supplemental\\s*security\\s*income",
+     "\\bSSI\\b"
+    ],
+    "weak": [
+     "overpayment",
+     "cost[-\\s]of[-\\s]living",
+     "benefit\\s*(amount|verification)",
+     "medicare\\s*premium"
+    ]
+   },
+   "notABill": false,
+   "baseUrgency": "red",
+   "sources": [
+    {
+     "title": "SSA 多付追回应对手册（费城社区法律服务）",
+     "url": "https://clsphila.org/wp-content/uploads/2019/11/SSA-Overpayment-Kit.pdf"
+    }
+   ],
+   "reviewed": false
+  },
+  {
+   "id": "DMV_RENEWAL",
+   "group": "government",
+   "cn": "驾照 / 身份证换发通知",
+   "en": "DMV License Renewal",
+   "whatItIs": "加州车管所通知您驾照或州身份证快到期了，该换新。",
+   "purpose": "提醒换证，并说明是可以网上办还是必须本人到场。",
+   "typicalAction": "看清楚能不能网上办。**70 岁以上通常要求本人到 DMV**，而且要考笔试、验视力，得提前预约 —— 预约常常要等好几周。",
+   "risks": "过期还开车，被查到罚款、保险也可能拒赔。老人预约排队久，拖不得。",
+   "signals": {
+    "strong": [
+     "department\\s*of\\s*motor\\s*vehicles",
+     "\\bDMV\\b",
+     "driver\\s*license\\s*renewal",
+     "identification\\s*card\\s*renewal"
+    ],
+    "weak": [
+     "renew\\s*(online|by\\s*mail)",
+     "vision\\s*(test|exam)",
+     "appointment",
+     "expiration\\s*date"
+    ]
+   },
+   "notABill": false,
+   "baseUrgency": "orange",
+   "sources": [
+    {
+     "title": "California DMV 官网",
+     "url": "https://www.dmv.ca.gov/"
+    }
+   ],
+   "reviewed": false
+  },
+  {
+   "id": "DMV_REGISTRATION",
+   "group": "government",
+   "cn": "车辆注册续费通知",
+   "en": "DMV Vehicle Registration Renewal",
+   "whatItIs": "车管所寄来的年度车辆注册续费单，要交钱换新的车牌贴纸。",
+   "purpose": "收取年度注册费。",
+   "typicalAction": "按期交费。有些车需要先做尾气检测（smog check）才能续。交完会寄新的贴纸，贴到车牌上。",
+   "risks": "过期开车会被开罚单，罚金加上滞纳金可能比原来的注册费还高。",
+   "signals": {
+    "strong": [
+     "vehicle\\s*registration\\s*renewal",
+     "registration\\s*renewal\\s*notice"
+    ],
+    "weak": [
+     "\\bDMV\\b",
+     "smog\\s*(check|certification)",
+     "license\\s*plate",
+     "vehicle\\s*license\\s*fee",
+     "\\bVIN\\b"
+    ]
+   },
+   "notABill": false,
+   "baseUrgency": "orange",
+   "sources": [],
+   "reviewed": false
+  },
+  {
+   "id": "USCIS_NOTICE",
+   "group": "government",
+   "cn": "移民局（USCIS）通知",
+   "en": "USCIS Notice",
+   "whatItIs": "移民局寄来的通知：收到申请、要求补件（RFE）、面谈通知、批准或拒绝。",
+   "purpose": "推进或结束一件移民申请。",
+   "typicalAction": "**这类信几乎都有硬期限，而且不能错过。** 要求补件（RFE）和面谈通知尤其要紧。看不懂就找移民律师或非营利移民服务机构，很多是免费的。",
+   "risks": "错过补件期限，申请直接被拒，之前交的钱和等的时间全部作废。",
+   "signals": {
+    "strong": [
+     "\\bUSCIS\\b",
+     "citizenship\\s*and\\s*immigration\\s*services",
+     "request\\s*for\\s*evidence",
+     "notice\\s*of\\s*action",
+     "form\\s*I-\\d{3}"
+    ],
+    "weak": [
+     "receipt\\s*number",
+     "biometrics",
+     "interview\\s*notice",
+     "department\\s*of\\s*homeland\\s*security"
+    ]
+   },
+   "notABill": false,
+   "baseUrgency": "red",
+   "sources": [
+    {
+     "title": "USCIS 官网",
+     "url": "https://www.uscis.gov/"
+    }
+   ],
+   "reviewed": false
+  },
+  {
+   "id": "FTB_NOTICE",
+   "group": "government",
+   "cn": "加州税务局（FTB）通知",
+   "en": "Franchise Tax Board Notice",
+   "whatItIs": "加州州税局寄来的通知：欠州税、退税调整、或者要求补资料。跟联邦的 IRS 是两个不同的机构。",
+   "purpose": "告知州税问题。",
+   "typicalAction": "跟 IRS 通知一样，先看编号和金额，核对自己的报税记录。可以在 FTB 官网登录账户核实这封信是不是真的。",
+   "risks": "不处理会累积利息罚金，加州州税局有权直接扣银行账户和工资。",
+   "signals": {
+    "strong": [
+     "franchise\\s*tax\\s*board",
+     "\\bFTB\\b"
+    ],
+    "weak": [
+     "state\\s*of\\s*california",
+     "tax\\s*year",
+     "balance\\s*due",
+     "state\\s*income\\s*tax"
+    ]
+   },
+   "notABill": false,
+   "baseUrgency": "red",
+   "sources": [
+    {
+     "title": "California Franchise Tax Board",
+     "url": "https://www.ftb.ca.gov/"
+    }
+   ],
+   "reviewed": false
+  },
+  {
+   "id": "COUNTY_NOTICE",
+   "group": "government",
+   "cn": "县政府通知",
+   "en": "County Notice",
+   "whatItIs": "县政府各部门寄来的通知：卫生局、社会服务、选民登记、公共工程等等。",
+   "purpose": "因部门而异，从纯告知到要求回应都有。",
+   "typicalAction": "先看是哪个部门、有没有要求回应。涉及福利资格（社会服务部）的通常有期限，要当回事。",
+   "risks": "福利类的通知不回可能被停；纯告知类的一般无害。",
+   "signals": {
+    "strong": [
+     "county\\s*of\\s*orange",
+     "orange\\s*county\\s*(department|social\\s*services|health)"
+    ],
+    "weak": [
+     "county\\s*clerk",
+     "public\\s*works",
+     "registrar\\s*of\\s*voters",
+     "board\\s*of\\s*supervisors"
+    ]
+   },
+   "notABill": true,
+   "baseUrgency": "yellow",
+   "sources": [],
+   "reviewed": false
+  },
+  {
+   "id": "JURY_DUTY",
+   "group": "government",
+   "cn": "陪审团传票",
+   "en": "Jury Duty Summons",
+   "whatItIs": "法院寄来的陪审团征召通知，要求您在指定日期到法院报到。",
+   "purpose": "征召公民履行陪审义务。",
+   "typicalAction": "**必须回应，不能不管。** 但可以申请免除或改期 —— 常见理由包括年满一定岁数、健康原因、英文能力不足、需要照顾家人。信上或法院网站有申请办法。",
+   "risks": "不回应可能被罚款，严重的会被藐视法庭。但**申请免除很常见也很容易**，不要因为看不懂就不管。",
+   "signals": {
+    "strong": [
+     "jury\\s*(duty|summons|service)",
+     "summons\\s*for\\s*jury",
+     "juror\\s*qualification"
+    ],
+    "weak": [
+     "superior\\s*court",
+     "united\\s*states\\s*district\\s*court",
+     "report\\s*(for|to)\\s*jury",
+     "failure\\s*to\\s*obey"
+    ]
+   },
+   "notABill": true,
+   "baseUrgency": "red",
+   "sources": [
+    {
+     "title": "加州中区联邦法院陪审团传票样本",
+     "url": "https://www.cacd.uscourts.gov/"
+    }
+   ],
+   "reviewed": false
+  },
+  {
+   "id": "PROPERTY_TAX_BILL",
+   "group": "property",
+   "cn": "年度房产税单",
+   "en": "Annual Secured Property Tax Bill",
+   "whatItIs": "县财政局每年寄来的房产税单。一年分两期交。",
+   "purpose": "收取年度房产税。",
+   "typicalAction": "看清楚**两期各自的到期日和罚款日**。很多人只看到第一个日期就以为交完了。有的房子税金由贷款银行代收（impound），那样收到的这封只是副本，不用自己交 —— 单子上通常会注明。",
+   "risks": "逾期罚 10% 是自动的、不能商量。长期不交，房子最终会被政府拍卖。",
+   "signals": {
+    "strong": [
+     "secured\\s*property\\s*tax",
+     "annual\\s*property\\s*tax\\s*bill",
+     "treasurer[-\\s]tax\\s*collector"
+    ],
+    "weak": [
+     "assessor'?s?\\s*parcel\\s*number",
+     "\\bAPN\\b",
+     "first\\s*installment",
+     "second\\s*installment",
+     "delinquen"
+    ]
+   },
+   "notABill": false,
+   "baseUrgency": "orange",
+   "sources": [
+    {
+     "title": "OC 财政局：Key Property Tax Dates",
+     "url": "https://www.octreasurer.gov/keypropertytaxdates"
+    }
+   ],
+   "reviewed": false,
+   "deadlineRule": {
+    "text": "加州全州统一：第一期 11 月 1 日到期、12 月 10 日之后加罚；第二期次年 2 月 1 日到期、4 月 10 日之后加罚。逾期罚 10%。",
+    "legalBasis": "加州 Revenue and Taxation Code 关于 secured roll 的到期与罚金条款（待核实具体条号）"
+   }
+  },
+  {
+   "id": "SUPPLEMENTAL_PROPERTY_TAX",
+   "group": "property",
+   "cn": "补充房产税单",
+   "en": "Supplemental Property Tax Bill",
+   "whatItIs": "买房或者房子重新估值之后，**额外**寄来的一张税单，补收从过户日到年度税单生效之间那段时间的差额。它是在年度税单之外的，不是替代。",
+   "purpose": "补收因为房产易主或改建导致的估值变化部分。",
+   "typicalAction": "**这是一张独立的账单，不能因为已经交过年度房产税就以为交过了。** 尤其买房当年最容易漏，而且这笔通常不在贷款银行代收的范围里，得自己交。",
+   "risks": "最常见的错误就是当成重复寄的年度税单扔掉，然后被罚 10%。",
+   "signals": {
+    "strong": [
+     "supplemental\\s*(property\\s*)?tax",
+     "supplemental\\s*assessment"
+    ],
+    "weak": [
+     "change\\s*in\\s*ownership",
+     "new\\s*construction",
+     "prorated",
+     "assessor"
+    ]
+   },
+   "notABill": false,
+   "baseUrgency": "orange",
+   "sources": [],
+   "reviewed": false
+  },
+  {
+   "id": "MELLO_ROOS",
+   "group": "property",
+   "cn": "Mello-Roos 特别税",
+   "en": "Mello-Roos / CFD Special Assessment",
+   "whatItIs": "某些社区（尔湾一带特别多）为了修学校、道路、公园，设了一个特别税区（CFD）。这笔税通常印在房产税单上，也可能单独寄。",
+   "purpose": "偿还社区基础设施的建设债券。",
+   "typicalAction": "多数情况下跟着房产税一起交，不用另外操作。单独寄来的要按单子上的期限交。可以在县里查这笔税还要收多少年。",
+   "risks": "跟房产税一样，逾期有罚金，长期不交可能导致留置权。",
+   "signals": {
+    "strong": [
+     "mello[-\\s]roos",
+     "community\\s*facilities\\s*district",
+     "\\bCFD\\b"
+    ],
+    "weak": [
+     "special\\s*(tax|assessment)",
+     "bond\\s*(levy|debt)",
+     "direct\\s*assessment"
+    ]
+   },
+   "notABill": false,
+   "baseUrgency": "yellow",
+   "sources": [],
+   "reviewed": false
+  },
+  {
+   "id": "HOA_ASSESSMENT",
+   "group": "property",
+   "cn": "业主协会（HOA）费用单",
+   "en": "HOA Assessment / Dues",
+   "whatItIs": "业主协会寄来的管理费账单，可能是月度、季度，也可能是一次性的特别摊派（special assessment）。",
+   "purpose": "收取小区共用设施的维护费用。",
+   "typicalAction": "按期交。特别摊派金额通常比平时大得多，可以问 HOA 能不能分期。",
+   "risks": "HOA 欠费在加州可以对房子设留置权（lien），极端情况下能强制拍卖。**HOA 的追讨手段比多数人以为的强硬得多。**",
+   "signals": {
+    "strong": [
+     "homeowners?\\s*association",
+     "\\bHOA\\b",
+     "community\\s*association",
+     "special\\s*assessment"
+    ],
+    "weak": [
+     "monthly\\s*(dues|assessment)",
+     "property\\s*management",
+     "common\\s*area"
+    ]
+   },
+   "notABill": false,
+   "baseUrgency": "orange",
+   "sources": [],
+   "reviewed": false
+  },
+  {
+   "id": "HOA_VIOLATION",
+   "group": "property",
+   "cn": "业主协会违规通知",
+   "en": "HOA Violation Notice",
+   "whatItIs": "HOA 说您的房子有违反社区规约的地方（外墙颜色、院子杂草、停车、装修等），要求整改。",
+   "purpose": "要求限期整改，否则罚款。",
+   "typicalAction": "看清楚说的是哪一项、要求什么时候之前改好。**不同意可以书面申辩并要求听证会** —— 加州法律给了业主这个权利，别默认只能认。",
+   "risks": "不理会会累积罚款，罚款不交同样可以变成留置权。",
+   "signals": {
+    "strong": [
+     "violation\\s*notice",
+     "notice\\s*of\\s*violation",
+     "cure\\s*(the\\s*)?violation"
+    ],
+    "weak": [
+     "\\bHOA\\b",
+     "\\bCC&Rs?\\b",
+     "architectural",
+     "hearing\\s*(request|before\\s*the\\s*board)",
+     "fine"
+    ]
+   },
+   "notABill": true,
+   "baseUrgency": "orange",
+   "sources": [],
+   "reviewed": false
+  },
+  {
+   "id": "HOME_INSURANCE_RENEWAL",
+   "group": "property",
+   "cn": "房屋保险续保通知",
+   "en": "Home Insurance Renewal",
+   "whatItIs": "房屋保险公司寄来的续保通知，说明明年的保费和保障内容。有时是**不续保通知**（non-renewal），那就完全不一样了。",
+   "purpose": "告知续保条件，或者告知不再承保。",
+   "typicalAction": "**先确认是「续保」还是「不续保」。** 加州近年因野火风险，不续保很常见。收到不续保通知要马上找新保险 —— 房子没保险，贷款银行会强制上一份贵得多的。",
+   "risks": "错过不续保通知，房子会断保。断保期间出事全部自负，而且贷款合同通常也违约。",
+   "signals": {
+    "strong": [
+     "renewal\\s*declarations?",
+     "policy\\s*renewal",
+     "non[-\\s]?renewal\\s*notice",
+     "notice\\s*of\\s*non[-\\s]?renewal"
+    ],
+    "weak": [
+     "homeowners?\\s*(policy|insurance)",
+     "dwelling\\s*coverage",
+     "policy\\s*period",
+     "effective\\s*dates"
+    ]
+   },
+   "notABill": false,
+   "baseUrgency": "orange",
+   "sources": [],
+   "reviewed": false
+  },
+  {
+   "id": "SCE_BILL",
+   "group": "utility",
+   "cn": "南加州爱迪生电费单（SCE）",
+   "en": "Southern California Edison Bill",
+   "whatItIs": "南加州爱迪生公司的电费账单。橙县、洛杉矶一带多数家庭用的是这家。",
+   "purpose": "收取本期电费。",
+   "typicalAction": "按期交。注意有的账单只是**明细页**，缴费联在另一页 —— 如果这页上没有「要交多少」，说明还有别的页。收入较低的家庭可以申请 CARE / FERA 折扣。",
+   "risks": "长期欠费会停电。老人如果有医疗设备用电，可以申请 Medical Baseline 保护。",
+   "signals": {
+    "strong": [
+     "southern\\s*california\\s*edison",
+     "\\bSCE\\b",
+     "edison\\s*international"
+    ],
+    "weak": [
+     "kwh",
+     "service\\s*account",
+     "rotating\\s*outage",
+     "clean\\s*power\\s*alliance",
+     "generation\\s*charges"
+    ]
+   },
+   "notABill": false,
+   "baseUrgency": "yellow",
+   "sources": [
+    {
+     "title": "SCE 官网",
+     "url": "https://www.sce.com/"
+    }
+   ],
+   "reviewed": false
+  },
+  {
+   "id": "SOCALGAS_BILL",
+   "group": "utility",
+   "cn": "南加州天然气费单（SoCalGas）",
+   "en": "SoCalGas Bill",
+   "whatItIs": "南加州天然气公司的账单，管做饭、热水和暖气的气费。",
+   "purpose": "收取本期燃气费。",
+   "typicalAction": "按期交。冬天账单会明显变高，属正常。低收入家庭同样可以申请 CARE 折扣。",
+   "risks": "长期欠费会停气，冬天没暖气没热水。停气前有书面通知。",
+   "signals": {
+    "strong": [
+     "socalgas",
+     "southern\\s*california\\s*gas"
+    ],
+    "weak": [
+     "therms?",
+     "gas\\s*(usage|charges)",
+     "meter\\s*read",
+     "baseline\\s*allowance"
+    ]
+   },
+   "notABill": false,
+   "baseUrgency": "yellow",
+   "sources": [],
+   "reviewed": false
+  },
+  {
+   "id": "WATER_BILL",
+   "group": "utility",
+   "cn": "水费单",
+   "en": "Water Bill",
+   "whatItIs": "当地水务局或市政的水费账单。橙县水务局很多、很分散，各家格式都不一样。",
+   "purpose": "收取水费（有时含污水处理和垃圾费）。",
+   "typicalAction": "按期交。**特别注意有没有「已自动扣款、请勿重复支付」的字样** —— 很多水单上印着 RECURRING PAYMENT / DO NOT PAY，那是提醒不要再付一次。",
+   "risks": "最常见的害处不是欠费，是**已经自动扣款了又付一次**。",
+   "signals": {
+    "strong": [
+     "water\\s*district",
+     "billing\\s*statement.*water",
+     "municipal\\s*water"
+    ],
+    "weak": [
+     "meter\\s*(read|size)",
+     "usage\\s*summary",
+     "\\bHCF\\b",
+     "service\\s*period",
+     "tier\\s*\\d"
+    ]
+   },
+   "notABill": false,
+   "baseUrgency": "yellow",
+   "sources": [],
+   "reviewed": false
+  },
+  {
+   "id": "INTERNET_BILL",
+   "group": "utility",
+   "cn": "网络 / 电话费单",
+   "en": "Internet or Phone Bill",
+   "whatItIs": "网络、手机或有线电视账单（AT&T、Spectrum、Verizon、T-Mobile 等）。",
+   "purpose": "收取本期服务费。",
+   "typicalAction": "按期交。留意「优惠期结束、月费上调」的小字，以及自己没申请过的附加服务。",
+   "risks": "账单上出现莫名其妙的附加费（cramming）比较常见，值得每期扫一眼明细。",
+   "signals": {
+    "strong": [
+     "wireless\\s*statement",
+     "internet\\s*service",
+     "\\bAT&T\\b",
+     "spectrum",
+     "verizon",
+     "t-mobile"
+    ],
+    "weak": [
+     "data\\s*used",
+     "monthly\\s*service\\s*charge",
+     "autopay\\s*discount",
+     "bill\\s*cycle"
+    ]
+   },
+   "notABill": false,
+   "baseUrgency": "green",
+   "sources": [],
+   "reviewed": false
+  },
+  {
+   "id": "WASTE_BILL",
+   "group": "utility",
+   "cn": "垃圾清运费单",
+   "en": "Waste / Trash Bill",
+   "whatItIs": "垃圾清运公司的账单（WM、Republic Services、CR&R 等）。有些城市把垃圾费并进水费单。",
+   "purpose": "收取垃圾清运服务费。",
+   "typicalAction": "按期交。留意「自动续约」条款和超重、混投的附加费。",
+   "risks": "金额一般不大，但欠费同样会转催收。",
+   "signals": {
+    "strong": [
+     "waste\\s*management",
+     "republic\\s*services",
+     "\\bCR&R\\b",
+     "disposal\\s*service"
+    ],
+    "weak": [
+     "recycling\\s*cart",
+     "cart\\s*removal",
+     "overage\\s*charge",
+     "service\\s*period"
+    ]
+   },
+   "notABill": false,
+   "baseUrgency": "green",
+   "sources": [],
+   "reviewed": false
+  },
+  {
+   "id": "CREDIT_CARD_STATEMENT",
+   "group": "financial",
+   "cn": "信用卡月结单",
+   "en": "Credit Card Statement",
+   "whatItIs": "信用卡公司每月寄来的对账单，列出本期消费、总欠款、最低还款额和到期日。",
+   "purpose": "对账和收款。",
+   "typicalAction": "**核对每一笔消费有没有不认识的。** 还款时注意区分「全额」和「最低还款」——只还最低会产生高额利息，很多人不知道这个区别。",
+   "risks": "只还最低会滚利息，越滚越多。逾期影响信用记录。发现盗刷要在 60 天内提出争议。",
+   "signals": {
+    "strong": [
+     "credit\\s*card\\s*statement",
+     "minimum\\s*payment\\s*due",
+     "new\\s*balance"
+    ],
+    "weak": [
+     "\\bAPR\\b",
+     "statement\\s*(closing|period)",
+     "available\\s*credit",
+     "interest\\s*charged"
+    ]
+   },
+   "notABill": false,
+   "baseUrgency": "orange",
+   "sources": [],
+   "reviewed": false,
+   "deadlineRule": {
+    "text": "法律要求账单至少在到期日前若干天寄到，具体到期日每家银行不同，以账单上印的为准。",
+    "legalBasis": "联邦 CARD Act 关于账单寄送提前期的规定（待核实具体条文）"
+   }
+  },
+  {
+   "id": "BANK_NOTICE",
+   "group": "financial",
+   "cn": "银行通知",
+   "en": "Bank Notice",
+   "whatItIs": "银行寄来的各类通知：条款变更、账户休眠、透支、利率调整、定期存款到期等。",
+   "purpose": "依法告知账户或条款的变化。",
+   "typicalAction": "看清楚有没有要求回应。**「账户休眠 / 无人认领财产」这类一定要处理** —— 长期不动的账户，加州法律要求银行把钱上缴州政府。",
+   "risks": "休眠账户里的钱被上缴州政府之后，要走一套申领流程才能拿回。",
+   "signals": {
+    "strong": [
+     "change\\s*in\\s*terms",
+     "dormant\\s*account",
+     "unclaimed\\s*property",
+     "escheat"
+    ],
+    "weak": [
+     "bank\\s*of\\s*america",
+     "wells\\s*fargo",
+     "\\bchase\\b",
+     "credit\\s*union",
+     "\\bFDIC\\b",
+     "account\\s*statement"
+    ]
+   },
+   "notABill": true,
+   "baseUrgency": "yellow",
+   "sources": [],
+   "reviewed": false
+  },
+  {
+   "id": "BANK_FRAUD_ALERT",
+   "group": "financial",
+   "cn": "银行盗刷 / 可疑交易警示",
+   "en": "Bank Fraud Alert",
+   "whatItIs": "银行说您的账户或卡出现了可疑交易，可能已经冻结，要您确认。",
+   "purpose": "确认交易是不是本人做的。",
+   "typicalAction": "**绝对不要打信上的电话、不要点信上的链接。** 翻到您自己银行卡背面的电话，或者直接去支行。**冒充银行的诈骗信正是长这个样子。** 真银行永远不会要您提供密码、PIN 或验证码。",
+   "risks": "两个方向都危险：真盗刷不处理会损失钱；假警示按它说的做，等于把账户交出去。",
+   "signals": {
+    "strong": [
+     "suspicious\\s*activity",
+     "fraud\\s*alert",
+     "unauthorized\\s*(transaction|charge)",
+     "account\\s*(has\\s*been\\s*)?(locked|suspended|frozen)"
+    ],
+    "weak": [
+     "verify\\s*your\\s*(identity|account)",
+     "call\\s*immediately",
+     "security\\s*department"
+    ]
+   },
+   "notABill": true,
+   "baseUrgency": "red",
+   "sources": [],
+   "reviewed": false
+  },
+  {
+   "id": "INSURANCE_PREMIUM",
+   "group": "financial",
+   "cn": "保险保费通知",
+   "en": "Insurance Premium Notice",
+   "whatItIs": "车险、房险、人寿险等寄来的保费通知或续保声明。",
+   "purpose": "收取保费或告知续保条件。",
+   "typicalAction": "**先看是不是真的要交。** 很多保单是自动扣款或者分期代扣的，声明上会写「AMOUNT DUE: None」或「BILLED THROUGH ...」，那种不用另外交钱。",
+   "risks": "误以为要交而重复付；或者真的漏交导致断保，断保期间出事全部自负。",
+   "signals": {
+    "strong": [
+     "premium\\s*(due|notice)",
+     "renewal\\s*declarations?",
+     "total\\s*premium"
+    ],
+    "weak": [
+     "policy\\s*number",
+     "policy\\s*period",
+     "effective\\s*dates",
+     "coverage\\s*summary",
+     "deductible"
+    ]
+   },
+   "notABill": false,
+   "baseUrgency": "orange",
+   "sources": [],
+   "reviewed": false
+  },
+  {
+   "id": "COLLECTION_LETTER",
+   "group": "financial",
+   "cn": "催缴信",
+   "en": "Collection Letter",
+   "whatItIs": "原来的债主（医院、公司）自己寄来的催缴信，还没有转给专业催收公司。",
+   "purpose": "在转催收之前催您付款。",
+   "typicalAction": "先核对这笔钱是不是真的欠。医疗账单尤其常见算错。可以打电话谈分期或减免 —— **在转给催收公司之前谈，条件通常好得多。**",
+   "risks": "转催收之后会影响信用记录，而且沟通对象变成不认识的公司，难度大很多。",
+   "signals": {
+    "strong": [
+     "past\\s*due",
+     "final\\s*notice",
+     "payment\\s*is\\s*overdue",
+     "second\\s*notice"
+    ],
+    "weak": [
+     "late\\s*fee",
+     "balance\\s*remains",
+     "please\\s*remit",
+     "avoid\\s*(further\\s*)?collection"
+    ]
+   },
+   "notABill": false,
+   "baseUrgency": "orange",
+   "sources": [],
+   "reviewed": false
+  },
+  {
+   "id": "DEBT_COLLECTION",
+   "group": "highrisk",
+   "cn": "催收公司来信",
+   "en": "Debt Collection Notice",
+   "whatItIs": "专业催收公司寄来的信，说您欠某笔钱。债权可能已经被转卖过好几手。",
+   "purpose": "追讨债务。",
+   "typicalAction": "**最重要的一步：书面要求对方提供债务证明（debt validation）。** 联邦法律给了您这个权利，而且必须在收到第一封信后 30 天内提出。**不要在电话里承认这笔债、也不要马上付钱** —— 付一分钱都可能重启诉讼时效。",
+   "risks": "两头都危险：真债不处理可能被起诉；而**已过时效的旧债和彻头彻尾的假债**在催收行业里非常多，一旦承认或付款，等于把已经失效的债救活。",
+   "signals": {
+    "strong": [
+     "debt\\s*collect",
+     "this\\s*is\\s*an\\s*attempt\\s*to\\s*collect\\s*a\\s*debt",
+     "collection\\s*agency",
+     "validation\\s*of\\s*(the\\s*)?debt"
+    ],
+    "weak": [
+     "original\\s*creditor",
+     "account\\s*placed",
+     "\\bFDCPA\\b",
+     "dispute\\s*this\\s*debt"
+    ]
+   },
+   "notABill": false,
+   "baseUrgency": "red",
+   "sources": [
+    {
+     "title": "CFPB：Debt collection 应对指引",
+     "url": "https://www.consumerfinance.gov/consumer-tools/debt-collection/"
+    }
+   ],
+   "reviewed": false,
+   "deadlineRule": {
+    "text": "收到催收公司第一封信起 30 天内，可以书面要求对方提供债务证明。这是联邦法律给的权利。",
+    "legalBasis": "联邦 Fair Debt Collection Practices Act 债务验证条款（待核实具体条号）"
+   }
+  },
+  {
+   "id": "COURT_SUMMONS",
+   "group": "highrisk",
+   "cn": "法院传票",
+   "en": "Court Summons",
+   "whatItIs": "有人对您提起了诉讼，法院要求您在期限内作出回应。",
+   "purpose": "通知被告应诉。",
+   "typicalAction": "**必须在期限内书面回应，哪怕您觉得这事跟自己没关系。** 不回应对方会拿到「缺席判决」，等于自动判您输。加州有免费的法院自助中心（Self-Help Center），非营利法律援助机构也能帮忙。",
+   "risks": "缺席判决之后，对方可以扣工资、扣银行账户、对房子设留置权。**这是所有信里后果最严重的一类。**",
+   "signals": {
+    "strong": [
+     "summons",
+     "you\\s*are\\s*being\\s*sued",
+     "notice\\s*to\\s*defendant",
+     "complaint\\s*filed",
+     "superior\\s*court\\s*of\\s*california"
+    ],
+    "weak": [
+     "plaintiff",
+     "defendant",
+     "case\\s*number",
+     "respond\\s*within\\s*30\\s*days",
+     "default\\s*judgment"
+    ]
+   },
+   "notABill": true,
+   "baseUrgency": "red",
+   "sources": [
+    {
+     "title": "California Courts Self-Help",
+     "url": "https://selfhelp.courts.ca.gov/"
+    }
+   ],
+   "reviewed": false,
+   "deadlineRule": {
+    "text": "加州民事案件收到传票后 30 天内必须提交答辩。这个期限写在法律里，不是对方定的。",
+    "legalBasis": "加州 Code of Civil Procedure 关于答辩期限的条款（待核实具体条号）"
+   }
+  },
+  {
+   "id": "LEGAL_NOTICE",
+   "group": "highrisk",
+   "cn": "法律通知 / 律师函",
+   "en": "Legal Notice",
+   "whatItIs": "律师事务所或对方当事人寄来的正式通知：要求停止某行为、集体诉讼参与通知、遗产程序通知等。",
+   "purpose": "因事而异，从告知权利到正式索赔都有。",
+   "typicalAction": "先分清是**要求您做什么**还是**告知您有某项权利**。集体诉讼通知常常是好事（您可能有钱可拿）；律师索赔函则要认真对待，最好找律师看。",
+   "risks": "当垃圾邮件扔掉的话，可能错过申领赔偿的机会，也可能错过应诉期限。",
+   "signals": {
+    "strong": [
+     "\\bLLP\\b",
+     "attorneys?\\s*at\\s*law",
+     "law\\s*offices?\\s*of",
+     "cease\\s*and\\s*desist",
+     "class\\s*action\\s*(notice|settlement)"
+    ],
+    "weak": [
+     "legal\\s*notice",
+     "our\\s*client",
+     "probate",
+     "without\\s*prejudice"
+    ]
+   },
+   "notABill": true,
+   "baseUrgency": "orange",
+   "sources": [],
+   "reviewed": false
+  },
+  {
+   "id": "SCAM_FAKE_GOV",
+   "group": "highrisk",
+   "cn": "冒充政府的诈骗信",
+   "en": "Scam / Fake Government Letter",
+   "whatItIs": "伪装成政府机构（IRS、社安局、移民局、Medicare）或大公司的骗信，目的是骗钱或骗个人信息。**专门盯老人。**",
+   "purpose": "诈骗。",
+   "typicalAction": "**不要打信上的电话，不要按信上的链接，不要提供任何号码。** 要核实就自己去官网查电话，或者拿给家人看。可以向 FTC 举报。",
+   "risks": "上当会直接损失钱，或者被冒名开户、盗用身份。",
+   "signals": {
+    "strong": [
+     "gift\\s*card",
+     "wire\\s*transfer\\s*immediately",
+     "you\\s*will\\s*be\\s*arrested",
+     "final\\s*warning.*arrest",
+     "act\\s*within\\s*24\\s*hours",
+     "bitcoin"
+    ],
+    "weak": [
+     "urgent\\s*action\\s*required",
+     "your\\s*(benefits|account)\\s*will\\s*be\\s*(suspended|terminated)",
+     "call\\s*this\\s*number\\s*immediately",
+     "do\\s*not\\s*ignore"
+    ]
+   },
+   "notABill": true,
+   "baseUrgency": "red",
+   "sources": [
+    {
+     "title": "FTC：How To Avoid a Government Impersonation Scam",
+     "url": "https://consumer.ftc.gov/articles/how-avoid-government-impersonation-scam"
+    }
+   ],
+   "reviewed": false
+  }
+ ]
+}
