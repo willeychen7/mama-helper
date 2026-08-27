@@ -2412,6 +2412,112 @@ export function extractLetterFields(lines, options = {}) {
 
   const dueDateTrusted = Boolean(dueDate && dateConfidenceOk && !dueDateStale);
 
+  /* ---------------- 逾期会怎么样 ----------------
+   *
+   * 光说「已经过期了」没有用 —— 老人真正要知道的是「那会怎么样」。
+   * 而这句话信上往往写得很清楚，只是我们以前没读：
+   *
+   *   If payment is received after 07/02/2025: $92.05
+   *   ... a monthly late charge of 2.5% of the unpaid amount,
+   *       with a minimum monthly charge of $5
+   *
+   * 三样东西全部**照抄信上的原文**，一个字都不推算、不引用外部知识：
+   *   lateAmount  逾期之后要交的总数（必须带 $，遵守决定 06）
+   *   ratePct     滞纳金比例
+   *   minCharge   每月最低滞纳金
+   *
+   * 拿不到就不说。绝不写「一般会加收 10%」这种话 ——
+   * 各家公司的罚则本来就不一样（决定：期限规则不进知识库）。
+   */
+  const LATE_PRICE_ANCHOR =
+    /\bif\s*(full\s*)?payment\s*is\s*received\s*after\b|\bif\s*(paid|received|postmarked)\s*after\b/i;
+  const LATE_RATE_RE =
+    /late\s*(?:payment\s*)?charge\s*(?:of\s*)?(\d{1,2}(?:\.\d+)?)\s*%/i;
+  /*
+   * 注意这里不能用 \b。PP-OCR 不输出词间空格，整句会粘成
+   *   「withaminimummonthlycharge of$5」
+   * 「minimum」前面没有词边界，加 \b 就永远匹配不上。
+   */
+  const LATE_MIN_RE =
+    /minimum\s*(?:monthly\s*)?(?:late\s*)?charge\s*of\s*\$\s*(\d+(?:\.\d{1,2})?)/i;
+
+  let lateAmount = null;
+  let lateRatePct = null;
+  let lateMinCharge = null;
+
+  safeLines.forEach((line) => {
+    const text = normalize(line.text);
+
+    if (LATE_PRICE_ANCHOR.test(text)) {
+      /*
+       * 逾期价可能就在这一行，也可能在下一行 ——
+       * WM 那张是「标签在上、日期和价钱在下」。
+       * 沿用同一套几何，斜纸的容差已经在 findValueNearAnchor 里放宽过了。
+       */
+      const hit = findValueNearAnchor(line, safeLines, moneyParser);
+      const own = findMoneyInText(text)[0];
+      const picked = own || (hit ? { value: hit.value } : null);
+      if (picked && Number.isFinite(picked.value) && picked.value > 0) {
+        if (lateAmount === null || picked.value > lateAmount) {
+          lateAmount = Math.abs(picked.value);
+        }
+      }
+    }
+
+  });
+
+  /*
+   * 比例和最低滞纳金要在**整页拼起来的文字**上找，不能逐行找。
+   *
+   * OCR 是按视觉行切的，这句话天生就跨行：
+   *   「...with a minimum monthly charge」
+   *   「of $5, or such late charge allowed under」
+   * 逐行匹配永远差一截。
+   *
+   * 这里只跑两条很具体的正则（late charge of N% / minimum charge of $N），
+   * 拼接带来的误配风险极小；而且这两个值只用来说明后果，
+   * 不参与金额和日期的判定。
+   */
+  const joinedText = safeLines.map((l) => normalize(l.text)).join(' ');
+  const rate = joinedText.match(LATE_RATE_RE);
+  if (rate) lateRatePct = Number(rate[1]);
+  const min = joinedText.match(LATE_MIN_RE);
+  if (min) lateMinCharge = Number(min[1]);
+
+  /*
+   * 逾期价必须比现在要交的钱**多** —— 否则它根本不是罚过之后的价。
+   * 这一条挡掉「把折扣价、分期价当成逾期价」的整类错。
+   */
+  const amountValueForLate = amount ? Math.abs(amount.value) : null;
+  if (
+    lateAmount !== null &&
+    amountValueForLate !== null &&
+    lateAmount <= amountValueForLate + 0.005
+  ) {
+    lateAmount = null;
+  }
+
+  const lateFee =
+    lateAmount !== null || lateRatePct !== null || lateMinCharge !== null
+      ? {
+          amount: lateAmount,
+          ratePct: lateRatePct,
+          minCharge: lateMinCharge,
+          extra:
+            lateAmount !== null && amountValueForLate !== null
+              ? Math.round((lateAmount - amountValueForLate) * 100) / 100
+              : null
+        }
+      : null;
+
+  addCheck(
+    'late_consequence_found',
+    Boolean(lateFee),
+    lateFee
+      ? `逾期价 ${lateFee.amount ?? '—'} / 比例 ${lateFee.ratePct ?? '—'}% / 最低 ${lateFee.minCharge ?? '—'}`
+      : '信上没写逾期会怎么样'
+  );
+
   // ---------------- 发信日期 ----------------
   statementCandidates.sort((a, b) => b.score - a.score);
   bareDateCandidates.sort((a, b) => b.score - a.score);
@@ -2796,6 +2902,11 @@ export function extractLetterFields(lines, options = {}) {
         },
 
     /*
+     * 逾期会怎么样 —— 全部照抄信上的原文，信上没写就是 null。
+     */
+    lateFee,
+
+    /*
      * 发信日期跟截止日期分开放，永远不合并。
      * 前端也必须分开显示 —— 这两个日期挨着放在一起，
      * 老人很容易把「信是 10月19日 写的」看成「10月19日 之前要交」。
@@ -2917,13 +3028,6 @@ function buildLayer0(fields, context) {
     whoSentIt = worthShowing
       ? `寄信的是${fields.sender.cn}（${abbr}）。`
       : `寄信的是${fields.sender.cn}。`;
-  } else if (fields.sender.value) {
-    /*
-     * 这是版面推测出来的「页面上字最大的一行」，
-     * 有可能根本不是机构名。措辞要留足余地。
-     */
-    whoSentIt = `信上最显眼的一行写的是「${fields.sender.value}」，可能是寄信的机构。`;
-    uncertain.push('寄件机构没能确定，上面那行只是根据版面推测的。');
   } else {
     uncertain.push('没能看出寄信的机构。');
   }
@@ -3106,6 +3210,42 @@ function buildLayer0(fields, context) {
   }
 
   /*
+   * ---- 5b. 过期了会怎么样 ----
+   *
+   * 只说「已经过去了」等于把话说了一半。老人真正会问的是
+   * 「那现在怎么办、会不会更贵」。
+   *
+   * 这里的每一个数字都来自信上的原文（见 fields.lateFee），
+   * 信上没写就整段不出现 —— 绝不说「一般会加收多少」。
+   */
+  let lateConsequence = null;
+  const lf = fields.lateFee;
+  if (lf && (lf.amount !== null || lf.ratePct !== null)) {
+    const bits = [];
+    if (lf.amount !== null) {
+      const overdue = fields.dueDate.stale;
+      bits.push(
+        overdue
+          ? `信上写着过了这天之后要交 ${formatMoneyCn(lf.amount)} 美元`
+          : `如果过了这天才交，要交的是 ${formatMoneyCn(lf.amount)} 美元`
+      );
+      if (lf.extra !== null && lf.extra > 0) {
+        bits.push(`比原来多 ${formatMoneyCn(lf.extra)} 美元`);
+      }
+    }
+    if (lf.ratePct !== null) {
+      bits.push(
+        lf.minCharge !== null
+          ? `之后每个月还会按没交的钱加收 ${lf.ratePct}% 的滞纳金，最少 ${formatMoneyCn(
+              lf.minCharge
+            )} 美元`
+          : `之后每个月还会加收 ${lf.ratePct}% 的滞纳金`
+      );
+    }
+    lateConsequence = `${bits.join('，')}。`;
+  }
+
+  /*
    * ---- 6. 这封信什么时候写的 ----
    *
    * 单独一句、单独一个框，措辞里刻意不出现「之前」「要」这类字眼，
@@ -3156,6 +3296,7 @@ function buildLayer0(fields, context) {
     gist,
     howMuch,
     whenDue,
+    lateConsequence,
     sentOn,
     retakeHints: context.retakeHints || [],
     uncertain,

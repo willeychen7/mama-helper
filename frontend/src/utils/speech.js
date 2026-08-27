@@ -30,6 +30,8 @@ export const buildSpeechText = (layer0) => {
   if (layer0.gist) parts.push(layer0.gist);
   if (layer0.howMuch) parts.push(layer0.howMuch);
   if (layer0.whenDue) parts.push(layer0.whenDue);
+  // 逾期后果紧跟着截止日期念，别隔开 —— 这两句要连在一起才有意义
+  if (layer0.lateConsequence) parts.push(layer0.lateConsequence);
   if (layer0.sentOn) parts.push(layer0.sentOn);
 
   (layer0.retakeHints || []).forEach((h) => parts.push(h.cn));

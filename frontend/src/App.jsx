@@ -1561,7 +1561,6 @@ const extractPaddleOCRStructure = (
   };
 };
 
-
 // ============================================================
 // Critical Field Detection
 //
@@ -4209,6 +4208,25 @@ export default function App() {
                                         .whenDue
                                     }
                                   </p>
+
+                                  {/*
+                                    * 过期了会怎么样 —— 就贴在截止日期下面。
+                                    *
+                                    * 只说「这天已经过去了」是把话说了一半，
+                                    * 老人真正会问的是「那会怎么样、要不要多交钱」。
+                                    * 这里的数字全部照抄信上的原文，信上没写就不出现。
+                                    */}
+                                  {letterFields
+                                    .layer0
+                                    .lateConsequence && (
+                                    <p className="mt-3 pt-3 border-t-2 border-rose-200 text-lg font-bold text-rose-900">
+                                      ⚠️ {
+                                        letterFields
+                                          .layer0
+                                          .lateConsequence
+                                      }
+                                    </p>
+                                  )}
 
                                 </div>
                               )}

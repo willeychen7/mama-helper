@@ -80,6 +80,18 @@ check(
   `金额报成了 ${f.amount.value}`
 );
 
+/*
+ * 逾期后果：信上明写「过了这天要交 92.05」。
+ * 光说「已经过期了」等于把话说了一半，老人真正要问的是「那会怎么样」。
+ * 92.05 只能出现在这里，绝不能跑到「要交多少」那一栏。
+ */
+check(
+  '读出逾期价 92.05，并算出比原价多 5 元',
+  f.lateFee && Math.abs(f.lateFee.amount - 92.05) < 0.005 &&
+    Math.abs(f.lateFee.extra - 5) < 0.005,
+  JSON.stringify(f.lateFee)
+);
+
 check(
   '顶上那个孤立日期没有被当成发信日期',
   !f.statementDate.trusted,
