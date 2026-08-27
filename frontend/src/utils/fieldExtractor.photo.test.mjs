@@ -51,14 +51,34 @@ console.log('   截止日:', f.dueDate.trusted ? f.dueDate.value : '没找到');
 console.log('   提示  :', (l0.retakeHints || []).map((h) => h.reason).join(', ') || '（无）');
 console.log('');
 
-// 1 · 绝不说错
+/*
+ * 1 · 说出来的必须是对的
+ *
+ * 这条断言一天内改了四次。过程比结论有用，全留着：
+ *
+ *   v1  不能报出任何金额        抽不出来，报了就是瞎猜
+ *   v2  金额 87.05 必须报对      放宽佐证（裸数字也算）之后能采信
+ *   v3  不能报出任何金额        佐证收回 —— 裸数字会把 AT&T 的流量 3.46 当成钱
+ *   v4  金额 87.05 必须报对      改用**正当路径**拿到（见下）
+ *
+ * v4 和 v2 结论一样，但走的路完全不同，这是重点：
+ *
+ *   v2 走的是「放松确认标准」—— 让证据不足的也过关
+ *   v4 走的是「把信息读全」  —— 表头「Total Account」/「Balance Due」
+ *                              被拆成两行印，合并起来匹配到
+ *                              total account balance due（95 分），
+ *                              超过 92 门槛，根本不需要佐证
+ *
+ * **判据从头到尾一次都没变**：能验证就说，不能验证就闭嘴。
+ * 变的是「能不能读全」，不是「要不要验证」。
+ */
 check(
-  '没有报出任何金额（照片里的标签不全，报了就是瞎猜）',
-  !f.amount.isPaymentDemand && !f.amount.trusted,
-  `报了 ${f.amount.value}`
+  '金额 87.05 报对了（两行表头合并后匹配到 95 分的明确总额）',
+  f.amount.trusted && Math.abs(f.amount.value - 87.05) < 0.005 && f.amount.isPaymentDemand,
+  `trusted=${f.amount.trusted} value=${f.amount.value}`
 );
 check(
-  '没有报出任何截止日期',
+  '没有报出截止日期（Your Payment is Due 那行被拍缺了，无从验证）',
   !f.dueDate.trusted,
   `报了 ${f.dueDate.value}`
 );

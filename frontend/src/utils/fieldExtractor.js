@@ -302,6 +302,16 @@ const AMOUNT_ANCHORS = [
   { re: /\bamount\s*you\s*owe\b/i, weight: 98 },
   { re: /\btotal\s*due\b/i, weight: 95 },
   { re: /\bamount\s*due\b/i, weight: 92 },
+  /*
+   * 「Total Account Balance Due」/「Total Balance Due」是明确的总额，
+   * 和裸的「Balance Due」不是一回事 ——
+   * 分期付款账单上会同时印着
+   *     Remaining Balance Due  $1,200      ← 欠款总额
+   *     Amount Due This Month  $100        ← 这次要交的
+   * 裸的 balance due 指哪个要看上下文，所以它一直停在 88（需要佐证）；
+   * 带 total 的那句没有这个歧义。
+   */
+  { re: /\btotal\s*(account\s*)?balance\s*due\b/i, weight: 95 },
   { re: /\bbalance\s*due\b/i, weight: 88 },
   { re: /\bplease\s*pay\b/i, weight: 84 },
   { re: /\bpay\s*this\s*amount\b/i, weight: 84 },
@@ -1803,8 +1813,81 @@ export function extractLetterFields(lines, options = {}) {
   const moneyParser = makeMoneyParser();
   const amountCandidates = [];
 
+  /*
+   * 表格的列标题经常拆成两行印：
+   *
+   *     Total Account          ← 上一行
+   *     Balance Due            ← 这一行（锚点只看得到这半句）
+   *         87.05
+   *
+   * 只看单行就只能匹配到裸的「Balance Due」（88 分，要佐证），
+   * 而完整的「Total Account Balance Due」是 95 分的明确总额。
+   * 人一眼就把这两行读成一句，我们也该。
+   *
+   * 条件卡得很紧，避免把不相干的两行拼起来当标签：
+   *   上一行就在正上方（垂直间距不超过 1.2 倍行高）
+   *   两行水平方向明显重叠（同一列）
+   *   上一行很短（<= 40 字符，是标题不是正文）
+   *   拼起来能匹配到**更强**的锚点才采用
+   */
+  const anchorTextWithHeaderAbove = (line) => {
+    const unit = Math.max(1, line.height || 20);
+    let above = null;
+
+    for (let i = 0; i < safeLines.length; i += 1) {
+      const cand = safeLines[i];
+      if (cand === line) continue;
+      if (cand.bottom > line.top) continue;
+      const gap = (line.top - cand.bottom) / unit;
+      if (gap < -0.2 || gap > 1.2) continue;
+      if (horizontalOverlapRatio(cand, line) < 0.5) continue;
+      if (normalize(cand.text).length > 40) continue;
+      if (!above || cand.bottom > above.bottom) above = cand;
+    }
+
+    if (!above) return null;
+
+    /*
+     * 关键限制：上一行**不能自己就带着值**。
+     *
+     * 没有这一条会炸。OC 房产税单是这样排的：
+     *     Total Amount Due    $4,281.10
+     *     First Installment   $2,140.55
+     * 「First Installment」跟上一行合并成「Total Amount Due First Installment」，
+     * 于是 2,140.55 也被当成总额，和 4,281.10 打架，两个都不敢用了。
+     *
+     * 真正的两行表头（WM 的「Total Account」/「Balance Due」）长得不一样：
+     * 上面那行右边是空的，值在两行的**下面**。
+     * 所以只要上一行右边或同行有自己的金额，就说明它是个完整的「标签+值」，
+     * 不是半句话，不该被接下来当前缀。
+     */
+    const aboveOwnValue = findValueNearAnchor(above, safeLines, moneyParser);
+    if (
+      aboveOwnValue &&
+      (aboveOwnValue.relation === 'right' || aboveOwnValue.relation === 'same-line')
+    ) {
+      return null;
+    }
+
+    return `${normalize(above.text)} ${normalize(line.text)}`;
+  };
+
   safeLines.forEach((line) => {
-    const anchor = matchAnchor(line.text, AMOUNT_ANCHORS, AMOUNT_ANCHOR_BLOCKERS);
+    let anchor = matchAnchor(line.text, AMOUNT_ANCHORS, AMOUNT_ANCHOR_BLOCKERS);
+
+    const merged = anchorTextWithHeaderAbove(line);
+    if (merged) {
+      const mergedAnchor = matchAnchor(
+        merged,
+        AMOUNT_ANCHORS,
+        AMOUNT_ANCHOR_BLOCKERS
+      );
+      // 只有拼起来更强才用，否则维持单行的判断
+      if (mergedAnchor && (!anchor || mergedAnchor.weight > anchor.weight)) {
+        anchor = mergedAnchor;
+      }
+    }
+
     if (!anchor) return;
 
     const hit = findValueNearAnchor(line, safeLines, moneyParser);
@@ -1980,13 +2063,57 @@ export function extractLetterFields(lines, options = {}) {
    * 原来直接相减，$6.33CR 在页面上出现五次也对不上，
    * 于是 AT&T 那张手机照片的金额佐证不足、被判为不可信。
    */
+  /*
+   * 另一个坑：findMoneyInText 只认带 $ 的写法。
+   *
+   * WM 那张垃圾账单，顶部印着 $87.05，下面的汇总表格里
+   * 又出现了两次裸的 87.05（表格格子里不重复印美元号）。
+   * 人一眼看到同一个数出现三次，而我们只数到一次 ——
+   * 于是「页面上重复出现」这条佐证不成立，金额抽出来了却不敢用。
+   *
+   * 整行**只有一个数**的情况用 parsePureMoney 兜住：
+   * 一整行就是个数字，那它不可能是别的东西，只能是金额。
+   */
+  /*
+   * 金额只认带 $ 的写法。没有美元号的数字一律不算。
+   *
+   * 这条今天反复过一次，把过程记下来：
+   *
+   * 早上为了让 WM 那封垃圾账单的 87.05 能被采信，我把「整行只有一个数」
+   * 也算进佐证 —— 因为表格格子里不重复印美元号。
+   * 然后发现口子开大了：PURE_MONEY_RE 要求正好两位小数，整数和四位小数
+   * 都进不来，但 AT&T 账单上的流量 "3.46"（Data Used GB）正好两位小数、
+   * 独占一行，会被当成金额。
+   *
+   * 于是我改成折中：至少一次带 $，裸数字只能追加。
+   * 但那个折中**还留着一个洞** —— 如果金额本身就是 $3.46，而流量也是 3.46，
+   * 照样会误判。
+   *
+   * 最后回到最简单的规则：**只认带 $ 的**。
+   * 少认一些金额（代价是更多信显示「没能确认」），
+   * 换掉整整一类「把别的数字当成钱」的错误。
+   *
+   * 跟决定 02 是同一个取舍：漏检只是少说几句，误判是自信地说错。
+   */
   const repeatedValue = Boolean(
     amount &&
-      safeLines.filter((line) =>
-        findMoneyInText(line.text).some(
-          (m) => Math.abs(Math.abs(m.value) - Math.abs(amount.value)) <= 0.005
-        )
-      ).length >= 2
+      safeLines.filter((line) => {
+        const target = Math.abs(amount.value);
+
+        if (
+          findMoneyInText(line.text).some(
+            (m) => Math.abs(Math.abs(m.value) - target) <= 0.005
+          )
+        ) {
+          return true;
+        }
+
+        // 整行就是一个金额，且**带美元号**（$87.05 / (45.00) 这种）
+        const pure = parsePureMoney(line.text);
+        return Boolean(
+          pure && pure.hasDollarSign && Math.abs(Math.abs(pure.value) - target) <= 0.005
+        );
+      }).length >= 2
   );
 
   addCheck(
