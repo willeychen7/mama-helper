@@ -25,6 +25,11 @@ import { extractLetterFields } from './utils/fieldExtractor';
 
 import { buildTranslatablePayload } from './utils/contentRedactor';
 
+import {
+  buildSpeechText,
+  pickChineseVoice
+} from './utils/speech';
+
 import './App.css';
 
 
@@ -1723,1014 +1728,6 @@ const getCriticalPriority = (
 };
 
 
-// ============================================================
-// Crop Local Image Region
-// ============================================================
-
-const cropImageRegion = async (
-  imageBlob,
-  bbox,
-  options = {}
-) => {
-  const {
-    horizontalPaddingRatio = 0.10,
-    verticalPaddingRatio = 0.65,
-    scale = 2,
-    maxDimension = 1600,
-
-    /*
-     * OCR 当时实际使用的图片尺寸。
-     * 不传就按 1:1 处理（bbox 与图片同一坐标系）。
-     */
-    sourceWidth = null,
-    sourceHeight = null
-  } = options;
-
-  const source =
-    await createImageBitmap(
-      imageBlob
-    );
-
-  try {
-    const imageWidth =
-      source.width;
-
-    const imageHeight =
-      source.height;
-
-    /*
-     * BUGFIX
-     *
-     * PaddleOCR 返回的 poly 坐标，本来就是「送进去那张图」的像素坐标。
-     * 原来这里除以硬编码的 2200，只有当图片正好是 2200 见方时才成立。
-     *
-     * 实际上竖版信件被缩放成 1700 x 2200，
-     * 于是 bboxScaleX = 1700 / 2200 = 0.77，
-     * 所有 x 坐标被缩到 77%，二次识别裁出来的是错误区域，
-     * 金额、日期这些关键字段反而越「精修」越错。
-     *
-     * 现在改成按调用方给的真实 OCR 源尺寸换算，默认 1:1。
-     */
-    const bboxScaleX =
-      imageWidth /
-      (sourceWidth || imageWidth);
-
-    const bboxScaleY =
-      imageHeight /
-      (sourceHeight || imageHeight);
-
-    let left =
-      bbox.left *
-      bboxScaleX;
-
-    let top =
-      bbox.top *
-      bboxScaleY;
-
-    let right =
-      bbox.right *
-      bboxScaleX;
-
-    let bottom =
-      bbox.bottom *
-      bboxScaleY;
-
-    const boxWidth =
-      Math.max(
-        1,
-        right - left
-      );
-
-    const boxHeight =
-      Math.max(
-        1,
-        bottom - top
-      );
-
-    const horizontalPadding =
-      boxWidth *
-      horizontalPaddingRatio;
-
-    const verticalPadding =
-      boxHeight *
-      verticalPaddingRatio;
-
-    left =
-      Math.floor(
-        left -
-          horizontalPadding
-      );
-
-    top =
-      Math.floor(
-        top -
-          verticalPadding
-      );
-
-    right =
-      Math.ceil(
-        right +
-          horizontalPadding
-      );
-
-    bottom =
-      Math.ceil(
-        bottom +
-          verticalPadding
-      );
-
-    left =
-      clamp(
-        left,
-        0,
-        imageWidth - 1
-      );
-
-    top =
-      clamp(
-        top,
-        0,
-        imageHeight - 1
-      );
-
-    right =
-      clamp(
-        right,
-        left + 1,
-        imageWidth
-      );
-
-    bottom =
-      clamp(
-        bottom,
-        top + 1,
-        imageHeight
-      );
-
-    const cropWidth =
-      Math.max(
-        1,
-        right - left
-      );
-
-    const cropHeight =
-      Math.max(
-        1,
-        bottom - top
-      );
-
-    const scaledWidth =
-      Math.max(
-        1,
-        Math.round(
-          cropWidth * scale
-        )
-      );
-
-    const scaledHeight =
-      Math.max(
-        1,
-        Math.round(
-          cropHeight * scale
-        )
-      );
-
-    let canvasWidth =
-      scaledWidth;
-
-    let canvasHeight =
-      scaledHeight;
-
-    const largest =
-      Math.max(
-        canvasWidth,
-        canvasHeight
-      );
-
-    if (
-      largest >
-      maxDimension
-    ) {
-      const ratio =
-        maxDimension /
-        largest;
-
-      canvasWidth =
-        Math.max(
-          1,
-          Math.round(
-            canvasWidth *
-              ratio
-          )
-        );
-
-      canvasHeight =
-        Math.max(
-          1,
-          Math.round(
-            canvasHeight *
-              ratio
-          )
-        );
-    }
-
-    const canvas =
-      document.createElement(
-        'canvas'
-      );
-
-    canvas.width =
-      canvasWidth;
-
-    canvas.height =
-      canvasHeight;
-
-    const ctx =
-      canvas.getContext(
-        '2d'
-      );
-
-    if (!ctx) {
-      throw new Error(
-        '局部 OCR 图片处理失败。'
-      );
-    }
-
-    ctx.imageSmoothingEnabled =
-      true;
-
-    ctx.imageSmoothingQuality =
-      'high';
-
-    ctx.drawImage(
-      source,
-      left,
-      top,
-      cropWidth,
-      cropHeight,
-      0,
-      0,
-      canvasWidth,
-      canvasHeight
-    );
-
-    const blob =
-      await new Promise(
-        (
-          resolve,
-          reject
-        ) => {
-          canvas.toBlob(
-            (result) => {
-              if (
-                result
-              ) {
-                resolve(
-                  result
-                );
-              } else {
-                reject(
-                  new Error(
-                    '局部 OCR 图片生成失败。'
-                  )
-                );
-              }
-            },
-            'image/jpeg',
-            0.96
-          );
-        }
-      );
-
-    return {
-      blob,
-      width:
-        canvasWidth,
-      height:
-        canvasHeight,
-      sourceRegion: {
-        left,
-        top,
-        right,
-        bottom,
-        width:
-          cropWidth,
-        height:
-          cropHeight
-      }
-    };
-  } finally {
-    source.close();
-  }
-};
-
-
-// ============================================================
-// Extract Best OCR Text From a Small Crop
-// ============================================================
-
-const extractBestCropOCR = (
-  result
-) => {
-  const items =
-    Array.isArray(
-      result?.items
-    )
-      ? result.items
-      : [];
-
-  if (
-    !items.length
-  ) {
-    return {
-      text: '',
-      confidence: null,
-      items: []
-    };
-  }
-
-  const cleaned =
-    items
-      .map(
-        (item) => ({
-          text:
-            typeof item?.text ===
-            'string'
-              ? item.text.trim()
-              : '',
-          score:
-            typeof item?.score ===
-            'number'
-              ? item.score *
-                100
-              : null,
-          poly:
-            item?.poly ||
-            null
-        })
-      )
-      .filter(
-        (item) =>
-          item.text
-      );
-
-  if (
-    !cleaned.length
-  ) {
-    return {
-      text: '',
-      confidence: null,
-      items: []
-    };
-  }
-
-  const scores =
-    cleaned
-      .map(
-        (item) =>
-          item.score
-      )
-      .filter(
-        (value) =>
-          typeof value ===
-          'number'
-      );
-
-  const confidence =
-    scores.length
-      ? scores.reduce(
-          (
-            sum,
-            value
-          ) =>
-            sum + value,
-          0
-        ) /
-        scores.length
-      : null;
-
-  const text =
-    cleaned
-      .map(
-        (item) =>
-          item.text
-      )
-      .join(' ');
-
-  return {
-    text,
-    confidence,
-    items:
-      cleaned
-  };
-};
-
-
-// ============================================================
-// Score Candidate OCR Result
-//
-// This is intentionally a validation score,
-// not a claim that we know the true answer.
-// ============================================================
-
-const scoreCandidate = (
-  text,
-  confidence,
-  fieldType
-) => {
-  const value =
-    normalizeTextForComparison(
-      text
-    );
-
-  if (!value) {
-    return 0;
-  }
-
-  let score =
-    typeof confidence ===
-      'number'
-      ? confidence
-      : 50;
-
-  if (
-    fieldType ===
-    'AMOUNT'
-  ) {
-    if (
-      /\$\s?\d[\d,]*(?:\.\d{2})\b/.test(
-        value
-      )
-    ) {
-      score += 30;
-    } else if (
-      /\d[\d,]*(?:\.\d{1,2})?\b/.test(
-        value
-      )
-    ) {
-      score += 10;
-    }
-  }
-
-  if (
-    fieldType ===
-    'DATE'
-  ) {
-    if (
-      /\b\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}\b/.test(
-        value
-      ) ||
-      /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b/i.test(
-        value
-      )
-    ) {
-      score += 30;
-    }
-  }
-
-  if (
-    fieldType ===
-    'PHONE'
-  ) {
-    const digits =
-      value.replace(
-        /\D/g,
-        ''
-      );
-
-    if (
-      digits.length ===
-      10
-    ) {
-      score += 25;
-    }
-  }
-
-  if (
-    fieldType ===
-      'IDENTIFIER' ||
-    fieldType ===
-      'NUMERIC'
-  ) {
-    const digits =
-      digitCount(
-        value
-      );
-
-    if (
-      digits >= 4
-    ) {
-      score +=
-        Math.min(
-          25,
-          digits * 2
-        );
-    }
-  }
-
-  if (
-    fieldType ===
-    'ZIP'
-  ) {
-    if (
-      /\b\d{5}(?:-\d{4})?\b/.test(
-        value
-      )
-    ) {
-      score += 25;
-    }
-  }
-
-  return score;
-};
-
-
-// ============================================================
-// Choose Better OCR Result
-// ============================================================
-
-const chooseBetterOCRResult = (
-  original,
-  refined,
-  fieldType
-) => {
-  const originalText =
-    normalizeTextForComparison(
-      original?.text
-    );
-
-  const refinedText =
-    normalizeTextForComparison(
-      refined?.text
-    );
-
-  if (!refinedText) {
-    return {
-      text:
-        originalText,
-      confidence:
-        original?.confidence ??
-        null,
-      source:
-        'first-pass',
-      improved: false
-    };
-  }
-
-  if (!originalText) {
-    return {
-      text:
-        refinedText,
-      confidence:
-        refined?.confidence ??
-        null,
-      source:
-        'second-pass',
-      improved: true
-    };
-  }
-
-  const originalScore =
-    scoreCandidate(
-      originalText,
-      original?.confidence,
-      fieldType
-    );
-
-  const refinedScore =
-    scoreCandidate(
-      refinedText,
-      refined?.confidence,
-      fieldType
-    );
-
-  const normalizedOriginal =
-    originalText
-      .replace(
-        /\s+/g,
-        ''
-      )
-      .toLowerCase();
-
-  const normalizedRefined =
-    refinedText
-      .replace(
-        /\s+/g,
-        ''
-      )
-      .toLowerCase();
-
-  const exactSame =
-    normalizedOriginal ===
-    normalizedRefined;
-
-  if (exactSame) {
-    return {
-      text:
-        originalText,
-      confidence:
-        Math.max(
-          original?.confidence ||
-            0,
-          refined?.confidence ||
-            0
-        ),
-      source:
-        'both-same',
-      improved: false
-    };
-  }
-
-  if (
-    refinedScore >
-    originalScore +
-      5
-  ) {
-    return {
-      text:
-        refinedText,
-      confidence:
-        refined?.confidence ??
-        null,
-      source:
-        'second-pass',
-      improved: true
-    };
-  }
-
-  if (
-    typeof refined?.confidence ===
-      'number' &&
-    typeof original?.confidence ===
-      'number' &&
-    refined.confidence >
-      original.confidence +
-        8
-  ) {
-    return {
-      text:
-        refinedText,
-      confidence:
-        refined.confidence,
-      source:
-        'second-pass',
-      improved: true
-    };
-  }
-
-  return {
-    text:
-      originalText,
-    confidence:
-      original?.confidence ??
-      null,
-    source:
-      'first-pass',
-    improved: false
-  };
-};
-
-
-// ============================================================
-// Run second OCR on one critical line
-// ============================================================
-
-const runCriticalLineReOCR = async (
-  ocr,
-  imageBlob,
-  line,
-  fieldType
-) => {
-  if (
-    !ocr ||
-    !imageBlob ||
-    !line
-  ) {
-    return {
-      original: {
-        text:
-          line?.text ||
-          '',
-        confidence:
-          line?.confidence ??
-          null
-      },
-      refined: null,
-      finalText:
-        line?.text ||
-        '',
-      finalConfidence:
-        line?.confidence ??
-        null,
-      source:
-        'first-pass',
-      improved: false
-    };
-  }
-
-  const crop =
-    await cropImageRegion(
-      imageBlob,
-      {
-        left:
-          line.left,
-        top:
-          line.top,
-        right:
-          line.right,
-        bottom:
-          line.bottom
-      },
-      {
-        horizontalPaddingRatio:
-          fieldType ===
-          'AMOUNT'
-            ? 0.16
-            : 0.12,
-        verticalPaddingRatio:
-          0.75,
-        scale: 2.2,
-        maxDimension:
-          1800
-      }
-    );
-
-  const results =
-    await ocr.predict(
-      crop.blob,
-      {
-        textDetLimitSideLen:
-          1800,
-
-        textDetLimitType:
-          'max',
-
-        /*
-         * 裁出来的小图已经放大过，笔画更粗，
-         * 检测阈值可以比整页稍微严一点，
-         * 但 unclip 仍然放宽，避免把 $ 号或末位数字切掉。
-         */
-        textDetThresh:
-          0.30,
-
-        textDetBoxThresh:
-          0.55,
-
-        textDetUnclipRatio:
-          2.2,
-
-        /*
-         * 二次 OCR 不要太宽松。
-         * 第一次 OCR 用 0.20 是为了“尽量别漏字”。
-         * 第二次则更强调质量。
-         */
-        textRecScoreThresh:
-          0.35
-      }
-    );
-
-  const result =
-    results?.[0];
-
-  const refined =
-    extractBestCropOCR(
-      result
-    );
-
-  const chosen =
-    chooseBetterOCRResult(
-      {
-        text:
-          line.text,
-        confidence:
-          line.confidence
-      },
-      refined,
-      fieldType
-    );
-
-  return {
-    original: {
-      text:
-        line.text,
-      confidence:
-        line.confidence ??
-        null
-    },
-
-    refined,
-
-    finalText:
-      chosen.text,
-
-    finalConfidence:
-      chosen.confidence,
-
-    source:
-      chosen.source,
-
-    improved:
-      chosen.improved,
-
-    fieldType,
-
-    cropSize: {
-      width:
-        crop.width,
-      height:
-        crop.height
-    }
-  };
-};
-
-
-// ============================================================
-// Refine Critical Lines Locally
-// ============================================================
-
-const refineCriticalOCRLines = async (
-  ocr,
-  imageBlob,
-  lines,
-  {
-    maxSecondPass = 12,
-    onProgress
-  } = {}
-) => {
-  const candidates =
-    (lines || [])
-      .map(
-        (line) => {
-          const fieldType =
-            getCriticalFieldType(
-              line.text
-            );
-
-          if (
-            !fieldType
-          ) {
-            return null;
-          }
-
-          return {
-            ...line,
-            fieldType,
-            criticalScore:
-              getCriticalPriority(
-                fieldType,
-                line.text,
-                line.confidence
-              )
-          };
-        }
-      )
-      .filter(Boolean)
-      .sort(
-        (a, b) =>
-          b.criticalScore -
-          a.criticalScore
-      );
-
-  const selected =
-    candidates.slice(
-      0,
-      maxSecondPass
-    );
-
-  const resultLines =
-    [...(lines || [])];
-
-  const stats = {
-    candidates:
-      candidates.length,
-    selected:
-      selected.length,
-    attempted: 0,
-    improved: 0,
-    unchanged: 0,
-    failed: 0
-  };
-
-  if (
-    typeof onProgress ===
-    'function'
-  ) {
-    onProgress(
-      0,
-      selected.length
-    );
-  }
-
-  for (
-    let i = 0;
-    i <
-    selected.length;
-    i += 1
-  ) {
-    const target =
-      selected[i];
-
-    const targetIndex =
-      resultLines.findIndex(
-        (line) =>
-          line.id ===
-          target.id
-      );
-
-    if (
-      targetIndex < 0
-    ) {
-      continue;
-    }
-
-    stats.attempted += 1;
-
-    try {
-      const refined =
-        await runCriticalLineReOCR(
-          ocr,
-          imageBlob,
-          target,
-          target.fieldType
-        );
-
-      resultLines[
-        targetIndex
-      ] = {
-        ...resultLines[
-          targetIndex
-        ],
-
-        originalTextBeforeRefinement:
-          resultLines[
-            targetIndex
-          ].text,
-
-        text:
-          refined.finalText,
-
-        confidence:
-          refined.finalConfidence,
-
-        refinement: {
-          fieldType:
-            refined.fieldType,
-
-          source:
-            refined.source,
-
-          improved:
-            refined.improved,
-
-          firstPass:
-            refined.original,
-
-          secondPass:
-            refined.refined,
-
-          cropSize:
-            refined.cropSize
-        }
-      };
-
-      if (
-        refined.improved
-      ) {
-        stats.improved +=
-          1;
-      } else {
-        stats.unchanged +=
-          1;
-      }
-    } catch (error) {
-      stats.failed +=
-        1;
-
-      console.warn(
-        '[OCR second-pass] Failed:',
-        target,
-        error
-      );
-    }
-
-    if (
-      typeof onProgress ===
-      'function'
-    ) {
-      onProgress(
-        i + 1,
-        selected.length
-      );
-    }
-  }
-
-  return {
-    lines:
-      resultLines,
-    stats
-  };
-};
-
 
 // ============================================================
 // App
@@ -2841,10 +1838,95 @@ export default function App() {
     setTranslatable
   ] = useState(null);
 
+
+  // ==========================================================
+  // 无障碍：字号 + 朗读
+  // ==========================================================
+
+  /*
+   * 字号三档。用 CSS zoom 而不是改 font-size ——
+   * 界面全是 Tailwind 的绝对字号（text-2xl 之类），
+   * 在父层改 font-size 对它们没有任何作用，只有 zoom 能整体放大。
+   */
   const [
-    ocrSecondPassStats,
-    setOcrSecondPassStats
+    fontScale,
+    setFontScale
+  ] = useState(1);
+
+  const [
+    speaking,
+    setSpeaking
+  ] = useState(false);
+
+  // 0.75 慢 / 0.9 正常 —— 默认就比系统默认慢，老人听得跟得上
+  const [
+    speechRate,
+    setSpeechRate
+  ] = useState(0.85);
+
+  const [
+    voiceInfo,
+    setVoiceInfo
   ] = useState(null);
+
+  /*
+   * 语音列表在部分浏览器里是异步加载的，
+   * 第一次 getVoices() 可能返回空数组，要等 voiceschanged。
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+
+    const load = () => setVoiceInfo(pickChineseVoice());
+    load();
+    window.speechSynthesis.addEventListener('voiceschanged', load);
+
+    return () => {
+      window.speechSynthesis.removeEventListener('voiceschanged', load);
+      window.speechSynthesis.cancel();
+    };
+  }, []);
+
+  const stopSpeaking = () => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    setSpeaking(false);
+  };
+
+  const speakLayer0 = () => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+    if (!letterFields || !letterFields.layer0) return;
+
+    if (speaking) {
+      stopSpeaking();
+      return;
+    }
+
+    const text = buildSpeechText(letterFields.layer0);
+    if (!text) return;
+
+    window.speechSynthesis.cancel();
+
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'zh-CN';
+    u.rate = speechRate;
+    // 音调压低一点，比默认好懂
+    u.pitch = 0.95;
+    if (voiceInfo && voiceInfo.voice) u.voice = voiceInfo.voice;
+
+    u.onend = () => setSpeaking(false);
+    u.onerror = () => setSpeaking(false);
+
+    setSpeaking(true);
+    window.speechSynthesis.speak(u);
+  };
+
+  /*
+   * 换了一封信就停止朗读 —— 否则还在念上一封信的内容。
+   */
+  useEffect(() => {
+    stopSpeaking();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [letterFields]);
 
 
   // ==========================================================
@@ -3287,10 +2369,6 @@ export default function App() {
     setOcrRuntime(null);
 
     setOcrMetrics(null);
-
-    setOcrSecondPassStats(
-      null
-    );
 
     setImagePrepReport(null);
 
@@ -3838,66 +2916,27 @@ export default function App() {
             result
           );
 
-        // ------------------------------------------------------
-        // Second local OCR pass
-        // ------------------------------------------------------
-
-        setLoadingText(
-          '正在对金额、日期和账号等关键区域进行本地二次识别...'
-        );
-
-        const secondPass =
-          await refineCriticalOCRLines(
-            ocr,
-            imageBlob,
-            firstPassLines,
-            {
-              maxSecondPass:
-                12,
-
-              onProgress:
-                (
-                  current,
-                  total
-                ) => {
-                  const ratio =
-                    total
-                      ? current /
-                        total
-                      : 0;
-
-                  setOcrProgress(
-                    Math.round(
-                      65 +
-                        ratio *
-                          25
-                    )
-                  );
-                }
-            }
-          );
-
-        if (
-          ocrCancelledRef.current
-        ) {
-          return null;
-        }
-
-        setOcrProgress(
-          92
-        );
-
-        setLoadingText(
-          '正在重新整理最终阅读顺序...'
-        );
-
         /*
-         * 二次 OCR 改过文字后，
-         * bbox 没有改变，所以可以直接再次排序/建 blocks。
+         * 这里原来有一遍「关键区域二次 OCR」：把金额、日期所在的行
+         * 裁出来放大，再认一次，分数更高就替换原来那行。
+         *
+         * 删掉了，三条理由：
+         *   1. 实测从来没有改善过任何一行（improved: 0）
+         *   2. 有确认的污染机制 —— 上下各扩 0.65 倍行高会吃到相邻行，
+         *      裁出来的所有文字被 join(' ') 拼成一串替换掉原行，
+         *      为了修一个金额，可能把邻行文字塞进金额那一行
+         *   3. 它想解决的场景，实测它解决不了 —— WM 那封垃圾账单上
+         *      「Your Payment is Due」被照片边缘切掉了上半截字母，
+         *      裁出来放大 4 倍认出来的是「YourPayueitisvue」。
+         *      放大救不回不在图里的像素，只是把残缺放大。
+         *
+         * 正确的应对是告诉用户重拍（见 fieldExtractor 的 retakeHint），
+         * 而不是自己偷偷猜。
          */
+
         const orderedFinalLines =
           buildSpatialReadingOrder(
-            secondPass.lines
+            firstPassLines
           );
 
         const finalLines =
@@ -3976,11 +3015,6 @@ export default function App() {
         );
 
         console.log(
-          'Second-pass stats:',
-          secondPass.stats
-        );
-
-        console.log(
           'Final lines:',
           finalLines
         );
@@ -4036,10 +3070,6 @@ export default function App() {
           metrics
         );
 
-        setOcrSecondPassStats(
-          secondPass.stats
-        );
-
         setOcrProgress(
           100
         );
@@ -4054,8 +3084,6 @@ export default function App() {
           confidence,
           metrics,
           runtime,
-          secondPassStats:
-            secondPass.stats,
           imageBlob
         };
       } catch (err) {
@@ -4293,10 +3321,6 @@ export default function App() {
       setOcrRuntime(null);
 
       setOcrMetrics(null);
-
-      setOcrSecondPassStats(
-        null
-      );
 
       setImagePrepReport(null);
 
@@ -4856,7 +3880,118 @@ export default function App() {
 
                     {letterFields &&
                       letterFields.layer0 && (
-                        <div className="bg-white border-4 border-slate-800 rounded-2xl p-6 space-y-4">
+                      <>
+
+                        {/* ================================================
+                          * 无障碍控制条
+                          *
+                          * 放在卡片**上面**而不是里面 —— 卡片会被 zoom 放大，
+                          * 控制条跟着放大就会挤出屏幕。
+                          *
+                          * 按钮做得很大：目标用户手抖、老花，小按钮点不中。
+                          * ================================================ */}
+                        <div className="flex flex-wrap items-center gap-3 mb-3">
+
+                          <button
+                            onClick={speakLayer0}
+                            className={
+                              'flex items-center gap-2 px-6 py-4 rounded-2xl text-2xl font-black border-4 transition ' +
+                              (speaking
+                                ? 'bg-red-600 text-white border-red-700'
+                                : 'bg-blue-600 text-white border-blue-700 hover:bg-blue-700')
+                            }
+                          >
+                            {speaking ? '■ 停止' : '🔊 读给我听'}
+                          </button>
+
+                          {speaking && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg font-bold text-slate-600">
+                                语速
+                              </span>
+                              {[
+                                ['慢', 0.7],
+                                ['正常', 0.85],
+                                ['快', 1.05]
+                              ].map(([label, rate]) => (
+                                <button
+                                  key={label}
+                                  onClick={() => {
+                                    setSpeechRate(rate);
+                                    // 语速改了要重念，否则要等这一句念完
+                                    stopSpeaking();
+                                    setTimeout(speakLayer0, 60);
+                                  }}
+                                  className={
+                                    'px-4 py-2 rounded-xl text-lg font-black border-2 ' +
+                                    (Math.abs(speechRate - rate) < 0.01
+                                      ? 'bg-slate-800 text-white border-slate-800'
+                                      : 'bg-white text-slate-700 border-slate-300')
+                                  }
+                                >
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-2 ml-auto">
+                            <span className="text-lg font-bold text-slate-600">
+                              字号
+                            </span>
+                            {[
+                              ['标准', 1],
+                              ['大', 1.25],
+                              ['特大', 1.55]
+                            ].map(([label, scale]) => (
+                              <button
+                                key={label}
+                                onClick={() => setFontScale(scale)}
+                                className={
+                                  'px-4 py-3 rounded-xl font-black border-2 ' +
+                                  (fontScale === scale
+                                    ? 'bg-slate-800 text-white border-slate-800'
+                                    : 'bg-white text-slate-700 border-slate-300')
+                                }
+                                style={{
+                                  fontSize:
+                                    scale === 1
+                                      ? '1.05rem'
+                                      : scale === 1.25
+                                        ? '1.3rem'
+                                        : '1.6rem'
+                                }}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+
+                        </div>
+
+                        {/*
+                          * 只有在挑不到本地中文语音时才出现。
+                          * 如实说清楚，而不是偷偷把文字发到云端念。
+                          */}
+                        {voiceInfo &&
+                          !voiceInfo.isLocal && (
+                          <p className="text-base text-amber-800 bg-amber-50 border-2 border-amber-300 rounded-xl px-4 py-2 mb-3">
+                            这台设备上只找到了联网的中文语音。点「读给我听」会把
+                            <b>小助手写的中文说明</b>（不含姓名地址）发给语音服务。
+                            介意的话就不要点，文字都在下面。
+                          </p>
+                        )}
+
+                        {!voiceInfo && (
+                          <p className="text-base text-slate-500 mb-3">
+                            这台设备上没有找到中文语音，朗读可能读不出来。
+                          </p>
+                        )}
+
+                        <div
+                          className="bg-white border-4 border-slate-800 rounded-2xl p-6 space-y-4"
+                          style={{ zoom: fontScale }}
+                        >
 
                           {/* ---- 诈骗警告：压在最上面，比什么都优先 ---- */}
                           {letterFields
@@ -5114,6 +4249,44 @@ export default function App() {
                             </div>
                           )}
 
+                          {/*
+                            * 重拍提示。
+                            *
+                            * 只会为「金额」和「截止日期」出现 —— 姓名、地址、账号
+                            * 缺了一个字都不说，因为老人很可能是**故意**不拍的。
+                            * 一个卖点是「你的隐私归你」的 app，不能反过来催用户
+                            * 把隐私拍进来。见 journal 决定 05「默认不问」。
+                            *
+                            * 做成蓝色而不是黄色/红色：这不是警告，是一件
+                            * 老人做一下就能解决的事。
+                            */}
+                          {letterFields
+                            .layer0
+                            .retakeHints &&
+                            letterFields
+                              .layer0
+                              .retakeHints
+                              .length > 0 && (
+                            <div className="bg-sky-50 border-4 border-sky-400 rounded-2xl p-5">
+
+                              <p className="text-lg font-black text-sky-800 mb-2">
+                                📷 再拍一次就能看清
+                              </p>
+
+                              {letterFields.layer0.retakeHints.map(
+                                (hint, i) => (
+                                  <p
+                                    key={i}
+                                    className="text-lg text-slate-800 leading-relaxed"
+                                  >
+                                    {hint.cn}
+                                  </p>
+                                )
+                              )}
+
+                            </div>
+                          )}
+
                           {letterFields
                             .layer0
                             .uncertain &&
@@ -5170,13 +4343,27 @@ export default function App() {
                               className="text-green-600"
                             />
 
+                            {/*
+                              * 原来这里写的是「没有联网，也没有交给任何 AI 模型」。
+                              *
+                              * 那句话把一个**架构选择**说成了**产品承诺**，
+                              * 等于自己把手脚捆住 —— 将来接 AI 帮老人读懂长尾内容时，
+                              * 这句话就成了打自己的脸。
+                              *
+                              * 用户真正怕的从来不是「AI」这个词，是
+                              * 「我的信、地址、账号会不会被传走」。
+                              * 所以要卖的是**边界**，不是**禁用**。
+                              */}
                             <p className="text-sm font-bold text-slate-500">
-                              以上内容全部由这台设备本机生成，没有联网，也没有交给任何 AI 模型。
+                              信件照片不会上传。姓名、地址、账号这些个人信息，
+                              先在您自己的设备上处理掉。将来接上 AI 时，
+                              也只有去掉身份信息之后的内容才会发出去。
                             </p>
 
                           </div>
 
                         </div>
+                      </>
                       )}
 
                     {/* =================================================
@@ -5333,72 +4520,6 @@ export default function App() {
                             )}
                             %
                           </p>
-
-                        </div>
-                      )}
-
-                      {ocrSecondPassStats && (
-                        <div className="bg-white rounded-xl p-4">
-
-                          <p className="text-base text-slate-500 font-bold mb-2">
-                            Local 二次 OCR
-                          </p>
-
-                          <div className="grid grid-cols-2 gap-3 text-sm">
-
-                            <div>
-                              <span className="text-slate-500">
-                                候选区域
-                              </span>
-
-                              <div className="text-xl font-black text-slate-900">
-                                {
-                                  ocrSecondPassStats
-                                    .candidates
-                                }
-                              </div>
-                            </div>
-
-                            <div>
-                              <span className="text-slate-500">
-                                实际重识别
-                              </span>
-
-                              <div className="text-xl font-black text-slate-900">
-                                {
-                                  ocrSecondPassStats
-                                    .attempted
-                                }
-                              </div>
-                            </div>
-
-                            <div>
-                              <span className="text-slate-500">
-                                结果改善
-                              </span>
-
-                              <div className="text-xl font-black text-green-700">
-                                {
-                                  ocrSecondPassStats
-                                    .improved
-                                }
-                              </div>
-                            </div>
-
-                            <div>
-                              <span className="text-slate-500">
-                                未改变
-                              </span>
-
-                              <div className="text-xl font-black text-slate-900">
-                                {
-                                  ocrSecondPassStats
-                                    .unchanged
-                                }
-                              </div>
-                            </div>
-
-                          </div>
 
                         </div>
                       )}
@@ -5584,7 +4705,7 @@ export default function App() {
                       <div className="flex items-center justify-between gap-3 mt-4 mb-3">
 
                         <p className="text-sm text-slate-500">
-                          第一遍 OCR + 关键字段二次 OCR 后的最终结果
+                          本地 OCR 的最终结果
                         </p>
 
                         <button
@@ -5821,54 +4942,6 @@ export default function App() {
                           </>
                         )}
 
-                        {ocrSecondPassStats && (
-                          <>
-                            <p>
-                              Second-pass Candidates：
-                              <strong>
-                                {' '}
-                                {
-                                  ocrSecondPassStats
-                                    .candidates
-                                }
-                              </strong>
-                            </p>
-
-                            <p>
-                              Second-pass Attempted：
-                              <strong>
-                                {' '}
-                                {
-                                  ocrSecondPassStats
-                                    .attempted
-                                }
-                              </strong>
-                            </p>
-
-                            <p>
-                              Second-pass Improved：
-                              <strong className="text-green-300">
-                                {' '}
-                                {
-                                  ocrSecondPassStats
-                                    .improved
-                                }
-                              </strong>
-                            </p>
-
-                            <p>
-                              Second-pass Failed：
-                              <strong className="text-amber-300">
-                                {' '}
-                                {
-                                  ocrSecondPassStats
-                                    .failed
-                                }
-                              </strong>
-                            </p>
-                          </>
-                        )}
-
                         <p>
                           PII Detection：
                           <strong className="text-green-300">
@@ -6069,7 +5142,7 @@ export default function App() {
                             <br />
                             <br />
 
-                            第二遍 OCR 会自动针对金额、日期、账号、号码等关键区域进行本地裁剪、放大和重新识别。
+                            读不准的时候，小助手会告诉您该重拍哪一块，而不是自己猜。
 
                             <br />
                             <br />

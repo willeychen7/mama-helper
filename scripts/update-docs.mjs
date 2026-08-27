@@ -77,6 +77,8 @@ const suites = [
   ['语句一致性', 'fieldExtractor.consistency.test.mjs'],
   ['脱敏断言', 'contentRedactor.hoag.test.mjs'],
   ['第一梯队真实信', 'fieldExtractor.tier1.test.mjs'],
+  ['手机实拍', 'fieldExtractor.photo.test.mjs'],
+  ['朗读安全', 'speech.test.mjs'],
 ];
 const suiteRows = suites.map(([name, file]) => {
   const out = run(file);

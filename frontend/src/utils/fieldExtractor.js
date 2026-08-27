@@ -789,6 +789,36 @@ const KNOWN_ORGS = [
 const SENDER_NOISE =
   /^(page\s*\d|go\s*paperless|retain\s*this|please\s*detach|www\.|http|thank\s*you|customer\s*service|account\s*number|statement)/i;
 
+/*
+ * 兜底挑机构名时，这些**绝不可能**是机构名，必须先排除。
+ *
+ * 起因：WM 那封垃圾账单认不出机构，兜底去挑「页面上方字号最大的一行」，
+ * 挑中了 $87.05 —— 老人看到「寄件机构：$87.05」。
+ *
+ * 这条为什么重要：全美水电气垃圾公司几千家，机构词典永远补不完，
+ * **兜底会一直被触发**，所以兜底自己必须是对的。
+ * 显示「未知」是诚实的，显示一个金额是胡说。
+ */
+/*
+ * 兜底挑机构名，方向必须是**白名单**：挑出来的那一行必须长得像机构名，
+ * 而不是「排除掉不像的」。
+ *
+ * 黑名单排不完。第一版排除了金额，兜底就去挑了「Visit wm.com/MyWM」；
+ * 再排除网址，它还会去挑别的。每补一条黑名单，它就换个地方咬。
+ *
+ * 白名单方向的代价是「更多信显示未知」，黑名单方向的代价是
+ * 「老人看到『寄件机构：$87.05』」。跟决定 02 是同一个取舍。
+ */
+const LOOKS_LIKE_ORG =
+  /\b(inc|llc|llp|ltd|corp|corporation|company|co|association|assoc|department|dept|bureau|agency|court|bank|credit\s*union|hospital|clinic|institute|medical|memorial|center|centre|district|county|city|state|university|college|school|insurance|assurance|health|healthcare|energy|gas|water|power|electric|utilities|utility|authority|administration|office|trust|fund|foundation|society|union|partners?|holdings?|management|properties|realty|mutual|federal|national|services?|systems?|group|waste|sanitation|disposal|recycling|edison|permanente)\b/i;
+
+/*
+ * 或者：整行大写、两个词以上、不含数字 —— 典型的信头写法
+ *   SOUTHERN CALIFORNIA EDISON / HOAG ORTHOPEDIC INSTITUTE
+ */
+const LOOKS_LIKE_LETTERHEAD = (t) =>
+  /^[A-Z][A-Z\s&.,'-]{5,}$/.test(t) && t.trim().split(/\s+/).length >= 2;
+
 const detectSender = (lines, pageHeight) => {
   const joined = lines.map((line) => line.text).join(' \n ');
 
@@ -834,7 +864,10 @@ const detectSender = (lines, pageHeight) => {
     (line) =>
       line.top < pageHeight * 0.35 &&
       normalize(line.text).length >= 3 &&
-      !SENDER_NOISE.test(normalize(line.text))
+      !SENDER_NOISE.test(normalize(line.text)) &&
+      // 白名单：必须长得像机构名，否则宁可显示「未知」
+      (LOOKS_LIKE_ORG.test(normalize(line.text)) ||
+        LOOKS_LIKE_LETTERHEAD(normalize(line.text)))
   );
 
   if (!topZone.length) {
@@ -2390,6 +2423,98 @@ export function extractLetterFields(lines, options = {}) {
     scam.suspected ? `命中 ${scam.hits.length} 条诈骗特征` : '没有明显诈骗特征'
   );
 
+  // ---------------- 重拍提示 ----------------
+  /*
+   * 只为「要交多少」和「什么时候交」这两件事开口要求重拍。
+   *
+   * 姓名、地址、账号缺了 —— **一个字都不说**。老人很可能是故意不拍的。
+   * 一个卖点是「你的隐私归你」的 app，不能反过来天天催用户把隐私拍进来。
+   * 机构名也不催：信头和收件人地址通常挨在一起（信封窗口那块），
+   * 催拍信头等于可能催出地址，而认不出机构的代价小得多。
+   * 见 journal「决定 05 · 默认不问」。
+   *
+   * 反过来说，金额和日期是老人拍这张照片的**目的**，
+   * 他绝不会故意挡住 —— 所以催这两样永远踩不到隐私。
+   */
+  const heights = safeLines
+    .map((l) => l.height || 0)
+    .filter(Boolean)
+    .sort((a, b) => a - b);
+
+  const medianHeight = heights.length ? heights[Math.floor(heights.length / 2)] : 0;
+
+  // 已经被某个锚点认领过的值框（名字不能叫 claimedBoxes —— 上面信头判定已经用了）
+  const anchoredBoxes = new Set(
+    [...amountCandidates, ...dateCandidates, ...statementCandidates].map((c) => c.box)
+  );
+
+  /*
+   * 「很显眼但没人认领」= 字号明显大于正文、在页面上半部、
+   * 却没有被任何锚点认领的金额或日期。
+   *
+   * 这正是 WM 那封垃圾账单的形态：$87.05 字号 1.5 倍、在最顶上，
+   * 而它上面那行「Your Payment is Due」被照片边缘切掉了上半截字母。
+   *
+   * 注意只在页面上半部找 —— 手机拍照有透视，纸的下半部离镜头近，
+   * 底部的法律条文字号反而最大（实测 2.1 倍），不能当显眼看待。
+   */
+  const findSalientOrphan = (parser) => {
+    if (!medianHeight) return null;
+    let best = null;
+    for (const line of safeLines) {
+      if (anchoredBoxes.has(line)) continue;
+      const v = parser(line);
+      if (v === null || v === undefined) continue;
+      const rel = (line.height || 0) / medianHeight;
+      if (rel < 1.3) continue;
+      if (line.top > pageHeight * 0.5) continue;
+      if (!best || line.height > best.line.height) best = { line, rel };
+    }
+    return best;
+  };
+
+  const retakeHints = [];
+
+  const pushHint = (field, cnField, candidate) => {
+    const orphan = findSalientOrphan(field === 'amount' ? moneyParser : dateParser);
+    if (orphan) {
+      retakeHints.push({
+        field,
+        reason: 'label-missing',
+        cn: `信上有一个很显眼的${cnField}，但它旁边那行标签没能读出来。请把整张单子重新拍一次，特别是这个${cnField}上方那一行字。`
+      });
+      return;
+    }
+    if (candidate && typeof candidate.confidence === 'number' && candidate.confidence < 75) {
+      retakeHints.push({
+        field,
+        reason: 'blurry',
+        cn: `${cnField}那一块没拍清楚。请把手机拿稳一点，对着${cnField}那部分再拍一次。`
+      });
+    }
+  };
+
+  if (!amountTrusted && expectsPayment) pushHint('amount', '金额', amount);
+  if (!dueDateTrusted && expectsPayment) pushHint('dueDate', '日期', dueDate);
+
+  /*
+   * 金额和日期通常挨在一起（账单顶部那一排框），
+   * 两条提示都说「请重拍整张单子」等于把同一句话说两遍。
+   * 老人只需要知道**做一件事**：重拍。所以同因合并。
+   */
+  if (retakeHints.length === 2 && retakeHints[0].reason === retakeHints[1].reason) {
+    const reason = retakeHints[0].reason;
+    retakeHints.length = 0;
+    retakeHints.push({
+      field: 'amount+dueDate',
+      reason,
+      cn:
+        reason === 'label-missing'
+          ? '信上的金额和日期都很显眼，但它们旁边那行标签没能读出来。请把整张单子重新拍一次，特别是最上面那一行字。'
+          : '金额和日期那一块没拍清楚。请把手机拿稳一点，对着单子上半部分再拍一次。'
+    });
+  }
+
   const trustworthy =
     category.trusted && (!expectsPayment || amountTrusted);
 
@@ -2484,7 +2609,8 @@ export function extractLetterFields(lines, options = {}) {
       explicitNoAmountDue,
       amountOnAutopay,
       amountIsCredit,
-      autopayConfirmed
+      autopayConfirmed,
+      retakeHints
     }),
     safePayload: buildSafePayload(fields, sumRelation, columnValues),
     trustworthy
@@ -2797,6 +2923,7 @@ function buildLayer0(fields, context) {
     howMuch,
     whenDue,
     sentOn,
+    retakeHints: context.retakeHints || [],
     uncertain,
     advice,
     highlights: [

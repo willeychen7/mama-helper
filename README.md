@@ -63,6 +63,8 @@ dictionary sizes behind it.
 | `fieldExtractor.consistency.test.mjs` | 矛盾 0 处 |
 | `contentRedactor.hoag.test.mjs` | 15 通过 / 0 失败 |
 | `fieldExtractor.tier1.test.mjs` | 第一梯队 4 通过 / 0 失败 |
+| `fieldExtractor.photo.test.mjs` | 手机实拍 6 通过 / 0 失败 |
+| `speech.test.mjs` | 朗读 16 通过 / 0 失败 |
 
 Dictionary sizes: 已知机构 40 · 信件类别 26 · 信件子类型 15 · 金额锚点 24 · 日期锚点 27 · 句式词典 30 · 诈骗特征 9 · 交叉校验 18.
 
