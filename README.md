@@ -64,6 +64,7 @@ dictionary sizes behind it.
 | `contentRedactor.hoag.test.mjs` | 15 通过 / 0 失败 |
 | `fieldExtractor.tier1.test.mjs` | 第一梯队 4 通过 / 0 失败 |
 | `fieldExtractor.photo.test.mjs` | 手机实拍 7 通过 / 0 失败 |
+| `fieldExtractor.slant.test.mjs` | 斜着拍的纸：框重叠也要抽得出来 |
 | `speech.test.mjs` | 朗读 16 通过 / 0 失败 |
 | `amount.corroboration.test.mjs` | 金额佐证 4 通过 / 0 失败 |
 | `layoutText.test.mjs` | 版面还原 8 通过 / 0 失败 |

@@ -1281,7 +1281,7 @@ const URGENCY_META = {
  * 而不是按等级套一句现成的话。
  */
 const buildUrgencyHint = (level, ctx) => {
-  const { remaining, dueDateKnown, isPaymentDemand, hasSevere, category } = ctx;
+  const { remaining, dueDateKnown, staleDue, isPaymentDemand, hasSevere, category } = ctx;
 
   const parts = [];
 
@@ -1295,6 +1295,13 @@ const buildUrgencyHint = (level, ctx) => {
     } else {
       parts.push(`离信上写的日期还有 ${remaining} 天`);
     }
+  } else if (staleDue) {
+    /*
+     * 日期读到了，只是已经过去很久，所以 dueDateKnown 是 false。
+     * 不能因此说「没找到截止日期」—— 下面的截止日期框里
+     * 明明白白写着那个日期，两句话会打架。
+     */
+    parts.push('信上写的截止日期已经过去了，这封信可能是旧的');
   } else if (isPaymentDemand) {
     // 这里正是原来出矛盾的地方：要付钱，但日期没读到
     parts.push('这封信要交钱，但小助手没在信上找到截止日期');
@@ -1521,6 +1528,7 @@ const computeUrgency = (context) => {
     hint: buildUrgencyHint(level, {
       remaining,
       dueDateKnown: Boolean(dueDate && dueDate.trusted),
+      staleDue: Boolean(dueDate && dueDate.stale && dueDate.value),
       isPaymentDemand: Boolean(amount && amount.isPaymentDemand),
       hasSevere: unconditionalSevere || conditionalSevere,
       category
@@ -1864,9 +1872,23 @@ export function extractLetterFields(lines, options = {}) {
     for (let i = 0; i < safeLines.length; i += 1) {
       const cand = safeLines[i];
       if (cand === line) continue;
-      if (cand.bottom > line.top) continue;
+      /*
+       * 上一行的「底」允许比这一行的「顶」低半个字高。
+       *
+       * 扫描件里两行表头是分开的，手机拍的斜纸不是：WM 账单上
+       *   「Total Account」bottom = 435
+       *   「Balance Due」  top    = 422
+       * 上一行的底比下一行的顶还低了 13 像素。原来这里一票否决，
+       * 两行表头就合不起来，「Balance Due」只剩弱锚点，
+       * 87.05 抽得出来却不敢采信 —— 界面上显示「没能确认具体金额」。
+       *
+       * 仍然要求 cand.top < line.top（确实在上面）和水平重叠 > 0.5，
+       * 所以不会把同一行的邻居当成表头。
+       */
+      if (cand.top >= line.top) continue;
+      if (cand.bottom > line.top + unit * 0.5) continue;
       const gap = (line.top - cand.bottom) / unit;
-      if (gap < -0.2 || gap > 1.2) continue;
+      if (gap < -0.5 || gap > 1.2) continue;
       if (horizontalOverlapRatio(cand, line) < 0.5) continue;
       if (normalize(cand.text).length > 40) continue;
       if (!above || cand.bottom > above.bottom) above = cand;
@@ -2582,7 +2604,12 @@ export function extractLetterFields(lines, options = {}) {
       onAutopay: amountOnAutopay
     },
     explicitNoAmountDue: Boolean(explicitNoAmountDue),
-    dueDate: { value: dueDate ? dueDate.value : null, trusted: dueDateTrusted },
+    dueDate: {
+      value: dueDate ? dueDate.value : null,
+      trusted: dueDateTrusted,
+      // 「读到了但已过期」要传进紧急度，否则提示语会说成「没找到日期」
+      stale: dueDateStale
+    },
     statementDate: {
       value: statementDate ? statementDate.value : null,
       trusted: statementDateTrusted
@@ -2674,7 +2701,13 @@ export function extractLetterFields(lines, options = {}) {
   };
 
   if (!amountTrusted && expectsPayment) pushHint('amount', '金额', amount);
-  if (!dueDateTrusted && expectsPayment) pushHint('dueDate', '日期', dueDate);
+  /*
+   * 日期已经读到、只是过期了，就不要再让老人重拍。
+   * 重拍解决不了「这封信是去年的」，白让人跑一趟。
+   */
+  if (!dueDateTrusted && !dueDateStale && expectsPayment) {
+    pushHint('dueDate', '日期', dueDate);
+  }
 
   /*
    * 金额和日期通常挨在一起（账单顶部那一排框），
@@ -2746,9 +2779,21 @@ export function extractLetterFields(lines, options = {}) {
           anchorText: dueDate.anchorText,
           relation: dueDate.relation,
           confidence: dueDate.confidence,
-          trusted: dueDateTrusted
+          trusted: dueDateTrusted,
+          /*
+           * 「日期太旧、不采信」和「压根没找到日期」是两回事。
+           * 混在一起说，界面上就会对一封 2025 年的旧账单讲
+           * 「信里没有找到明确的截止日期」—— 明明信上写着。
+           */
+          stale: dueDateStale
         }
-      : { value: null, trusted: false, isPaymentDemand: false, onAutopay: false },
+      : {
+          value: null,
+          trusted: false,
+          stale: false,
+          isPaymentDemand: false,
+          onAutopay: false
+        },
 
     /*
      * 发信日期跟截止日期分开放，永远不合并。
@@ -3045,6 +3090,16 @@ function buildLayer0(fields, context) {
     whenDue = null;
   } else if (fields.dueDate.trusted && fields.dueDate.value) {
     whenDue = `请在 ${formatDateCn(fields.dueDate.value)} 之前处理。`;
+  } else if (fields.dueDate.stale && fields.dueDate.value) {
+    /*
+     * 日期抽出来了，只是已经过去很久。
+     * 这时候说「没找到」是撒谎，说「请在这天之前处理」是荒唐 ——
+     * 照实说：信上写的是这天，已经过去了，这封信可能是旧的。
+     */
+    whenDue = `信上写的截止日期是 ${formatDateCn(
+      fields.dueDate.value
+    )}，这天已经过去了。`;
+    uncertain.push('信上的截止日期已经过去，请确认这封信是不是旧的。');
   } else if (context.expectsPayment) {
     whenDue = '信里没有找到明确的截止日期。';
     uncertain.push('截止日期没能确认。');

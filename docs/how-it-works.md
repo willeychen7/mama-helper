@@ -481,6 +481,7 @@ HOA 按规约算，每家都不同，写一个数字出去就是编。不填的�
 | 脱敏断言 | `contentRedactor.hoag.test.mjs` | 15 通过 / 0 失败 |
 | 第一梯队真实信 | `fieldExtractor.tier1.test.mjs` | 第一梯队 4 通过 / 0 失败 |
 | 手机实拍 | `fieldExtractor.photo.test.mjs` | 手机实拍 7 通过 / 0 失败 |
+| 斜纸重叠 | `fieldExtractor.slant.test.mjs` | 斜着拍的纸：框重叠也要抽得出来 |
 | 朗读安全 | `speech.test.mjs` | 朗读 16 通过 / 0 失败 |
 | 金额佐证 | `amount.corroboration.test.mjs` | 金额佐证 4 通过 / 0 失败 |
 | 版面还原 | `layoutText.test.mjs` | 版面还原 8 通过 / 0 失败 |
