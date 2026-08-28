@@ -2984,10 +2984,24 @@ export function extractLetterFields(lines, options = {}) {
     'ltc_insurance'
   ];
 
+  /*
+   * 原来要求 anchorWeight >= 88，Zylker Healthcare 发票撞上了：
+   * 类别认不出（词典里没有"发票/INVOICE"这个类别），锚点只匹配到
+   * 裸的 "Total"（35 分，够不到 88），也没有 PAY/COLLECTION 语气的
+   * 句子（这封发票模板本来就没写"请支付"这类措辞）——三条全落空，
+   * `expectsPayment` 判成 false，于是老人看到的是「这封信里没有
+   * 提到要交钱」，而这封信明明白白有个 $14,595.00 的 Total。
+   *
+   * 改成 anchorWeight > 0（命中了任意一条金额锚点，哪怕是最弱的裸
+   * "total"）。这条口子不会引入乱报——AMOUNT_ANCHORS 里权重最低的
+   * 几条（total/amount enclosed）本来就是账单概念，不是随便什么词；
+   * 真正"这封信跟钱无关"的信（法院传票、监管公函）压根不会有任何
+   * 金额候选，这条判断改了也碰不到它们。
+   */
   const expectsPayment =
     !explicitlyNotABill &&
     (BILLING_CATEGORIES.includes(category.id) ||
-      amountCandidates.some((c) => c.anchorWeight >= 88) ||
+      amountCandidates.some((c) => c.anchorWeight > 0) ||
       phrases.some((p) => p.intent === 'PAY' || p.intent === 'COLLECTION'));
 
   const urgency = computeUrgency({

@@ -104,6 +104,39 @@ $911.01 → $1,822.02」左边本该有的标签）这次 OCR 完全没读出来
 
 ---
 
+## 2026-08-28 · 🐛 金额看不准的时候，说成了「这封信里没有提到要交钱」
+
+**被用户在真实浏览器里测 `Medical_Invoice` 炸出来的**——上一条刚把
+金额从错误的 13,900 修成看不准的 14,595，用户反馈"现在说的是
+金额 这封信里没有提到要交钱"，比显示错误金额更糟——**这句话直接
+否定了这封信是账单**，老人看了大概率会把这封发票直接丢掉。
+
+**根因**：中文结论模板挑话术走的是一条 if/else 链，`fields.amount
+.isPaymentDemand` 为 false 时会看 `context.expectsPayment`——true
+就说"看起来和缴费有关，但没能确认金额"（正确），false 就说"没有
+提到要交钱"（这次触发的这条，错误）。`expectsPayment` 的判断有
+三条，Zylker Healthcare 发票**三条全部落空**：
+
+```js
+const expectsPayment =
+  !explicitlyNotABill &&
+  (BILLING_CATEGORIES.includes(category.id) ||       // 类别认不出（词典没有"发票"这个类别）
+    amountCandidates.some((c) => c.anchorWeight >= 88) ||  // 锚点只有裸 "Total"，35 分
+    phrases.some((p) => p.intent === 'PAY' || ...));  // 发票模板没有"请支付"这类措辞
+```
+
+**改法**：把 `anchorWeight >= 88` 降到 `anchorWeight > 0`——命中了
+任意一条金额锚点（哪怕是最弱的裸 "total"）就算。这条口子敢开，是
+因为 `AMOUNT_ANCHORS` 里权重最低的几条本来就是账单概念（total /
+amount enclosed），不是随便什么词；真正跟钱无关的信（法院传票、
+监管公函）压根不会有任何金额候选，改了也碰不到它们。
+
+**验证**：`Medical_Invoice` 现在显示"这封信看起来和缴费有关，但
+小助手没能确认具体金额"——不再暗示这封信不用管。六层回归全绿，
+14 封老信息一个字都没变。
+
+---
+
 ## 2026-08-28 · 🐛 `PURE_MONEY_RE` 的 $ 一直是可选的，决定 06 名存实亡
 
 **被 `demo_image/Medical_Invoice.png`（Zylker Healthcare 发票模板）
