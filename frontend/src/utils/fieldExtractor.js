@@ -2302,10 +2302,31 @@ export function extractLetterFields(lines, options = {}) {
     options.imageHeight ||
     safeLines.reduce((m, l) => Math.max(m, l.bottom || 0), 1);
 
+  /*
+   * 无标签信头日期的兜底规则原来只看「在不在页面上三分之一」，
+   * 没看这一格是不是表格里的一列。SoCalGas 账单 Account Summary
+   * 里「Payment Received | 11/20/15 | THANK YOU | -25.18」是一行
+   * 四列的表格，11/20/15 单独占一格、没有别的字，
+   * BARE_DATE_LINE_RE 认它是「这一行只有日期」，又落在页面上三分之一内，
+   * 于是被当成信头日期抓走了——但它左边同一行明明写着
+   * 「Payment Received」，是上次收到付款的日期，不是这封信的发信日期。
+   * 加一条同行检查：同一行（垂直重叠）左边如果有支付历史类的标签，
+   * 这一格就不是孤立的信头日期，不采信。
+   */
+  const hasPaymentHistoryLabelSameRow = (line) =>
+    safeLines.some(
+      (other) =>
+        other !== line &&
+        other.left < line.left &&
+        verticalOverlapRatio(line, other) > 0.45 &&
+        AMOUNT_ANCHOR_BLOCKERS.test(normalize(other.text))
+    );
+
   safeLines.forEach((line) => {
     if (
       BARE_DATE_LINE_RE.test(normalize(line.text)) &&
-      line.top < pageBottom * 0.35
+      line.top < pageBottom * 0.35 &&
+      !hasPaymentHistoryLabelSameRow(line)
     ) {
       // dateParser 收的是整个 line 对象（它内部要读 line.text），不是字符串
       const bare = dateParser(line);
