@@ -2985,20 +2985,36 @@ export function extractLetterFields(lines, options = {}) {
   ];
 
   /*
-   * 原来要求 anchorWeight >= 88，Zylker Healthcare 发票撞上了：
-   * 类别认不出（词典里没有"发票/INVOICE"这个类别），锚点只匹配到
-   * 裸的 "Total"（35 分，够不到 88），也没有 PAY/COLLECTION 语气的
-   * 句子（这封发票模板本来就没写"请支付"这类措辞）——三条全落空，
-   * `expectsPayment` 判成 false，于是老人看到的是「这封信里没有
-   * 提到要交钱」，而这封信明明白白有个 $14,595.00 的 Total。
+   * 金额其实是三个不同的问题，之前一直共用锚点权重这一个数字回答：
    *
-   * 改成 anchorWeight > 0（命中了任意一条金额锚点，哪怕是最弱的裸
-   * "total"）。这条口子不会引入乱报——AMOUNT_ANCHORS 里权重最低的
-   * 几条（total/amount enclosed）本来就是账单概念，不是随便什么词；
-   * 真正"这封信跟钱无关"的信（法院传票、监管公函）压根不会有任何
-   * 金额候选，这条判断改了也碰不到它们。
+   *   ① 信里有没有一个金额候选？          —— amountCandidates 本身
+   *   ② 这个金额看起来跟"要花钱"这件事有没有关系？  —— 这次要拆出来的
+   *   ③ 这个金额是不是明确要老人交的那一笔？  —— 已有的 isPaymentDemand
+   *
+   * 之前 ② 是拿 ③ 的思路顺手改的（anchorWeight >= 88 或 > 0），
+   * 这是错的——①③ 各自有明确边界（有没有候选 / 锚点够不够强），
+   * ② 没有，之前一直在借用③的判断标准，只是数字调松了一点。
+   * Zylker Healthcare 发票撞上的是②该多宽松的问题，不是③该多严格
+   * 的问题——它的裸 "Total" 权重 35，远够不到③要求的 72，但②应该
+   * 认为"这至少是一个账单场景"，不该跟①③混在一起用同一个数字判断。
+   *
+   * ②现在的判法：只要有任意一个金额候选命中了 AMOUNT_ANCHORS 里
+   * 任意一条（哪怕是最弱的裸 total/amount enclosed），或者类别本身
+   * 在账单类别里，或者页面有 PAY/COLLECTION 语气的句子。
+   *
+   * **这里留一个没解决的口子，写清楚而不是假装没有**：AMOUNT_ANCHORS
+   * 目前只有"这条措辞多常见于账单"这一个维度（weight），没有"这条
+   * 措辞在这份文档里到底是不是在指付款金额"这个维度——bare "total"
+   * 在一张账单上大概率是应缴总额，但在一张地税单的税率分摊表里，
+   * "Total: 1.01671 → $1,822.02" 那一行的 "total" 是在说"税率算出
+   * 来的金额"，不是"请缴纳这笔钱"，两者现在共用同一条正则、同一个
+   * 权重，分不出来。要分清楚，需要给 AMOUNT_ANCHORS 每条锚点标注
+   * "这条措辞的语义"（付款指令 / 金额相关但不确定 / 纯计算结果），
+   * 而不是继续调weight数字——但现在手上没有真实撞上这个歧义的样本
+   * （之前 OC 地税单那次是空间证据丢失，不是这个问题），先不臆造
+   * 规则，等真的遇到再补语义标注。
    */
-  const expectsPayment =
+  const amountLooksPaymentRelated =
     !explicitlyNotABill &&
     (BILLING_CATEGORIES.includes(category.id) ||
       amountCandidates.some((c) => c.anchorWeight > 0) ||
@@ -3113,12 +3129,12 @@ export function extractLetterFields(lines, options = {}) {
     }
   };
 
-  if (!amountTrusted && expectsPayment) pushHint('amount', '金额', amount);
+  if (!amountTrusted && amountLooksPaymentRelated) pushHint('amount', '金额', amount);
   /*
    * 日期已经读到、只是过期了，就不要再让老人重拍。
    * 重拍解决不了「这封信是去年的」，白让人跑一趟。
    */
-  if (!dueDateTrusted && !dueDateStale && expectsPayment) {
+  if (!dueDateTrusted && !dueDateStale && amountLooksPaymentRelated) {
     pushHint('dueDate', '日期', dueDate);
   }
 
@@ -3141,7 +3157,7 @@ export function extractLetterFields(lines, options = {}) {
   }
 
   const trustworthy =
-    category.trusted && (!expectsPayment || amountTrusted);
+    category.trusted && (!amountLooksPaymentRelated || amountTrusted);
 
   const fields = {
     category: {
@@ -3178,6 +3194,15 @@ export function extractLetterFields(lines, options = {}) {
           relation: amount.relation,
           confidence: amount.confidence,
           trusted: amountTrusted,
+          /*
+           * 三个状态分开暴露，不要只看 isPaymentDemand：
+           *   有候选        -> amount 这个对象存在（本身就是状态①）
+           *   looksPaymentRelated -> 状态②，"像是账单场景"，弱证据也算
+           *   isPaymentDemand     -> 状态③，"确认是要交的这一笔"，强证据才算
+           * ②为 true、③为 false 时，UI 该说"看起来和缴费有关，但没能
+           * 确认具体金额"，不是"要交 X 美元"，也不是"没有提到要交钱"。
+           */
+          looksPaymentRelated: amountLooksPaymentRelated,
           isPaymentDemand: amountIsPaymentDemand,
           // 钱要付，但已登记自动扣款 —— 和「要你去交」是两回事
           onAutopay: amountOnAutopay,
@@ -3243,7 +3268,7 @@ export function extractLetterFields(lines, options = {}) {
     fields,
     checks,
     layer0: buildLayer0(fields, {
-      expectsPayment,
+      amountLooksPaymentRelated,
       trustworthy,
       columnLooksInconsistent,
       subtype,
@@ -3483,7 +3508,7 @@ function buildLayer0(fields, context) {
     howMuch = `这封信不是账单，不用交钱。（信上的 ${formatMoneyCn(
       fields.amount.value
     )} 美元是费用明细，不是要您付的钱。）`;
-  } else if (context.expectsPayment) {
+  } else if (context.amountLooksPaymentRelated) {
     howMuch = '这封信看起来和缴费有关，但小助手没能确认具体金额。';
     uncertain.push('应缴金额没能确认。');
   } else {
@@ -3511,7 +3536,7 @@ function buildLayer0(fields, context) {
       fields.dueDate.value
     )}，这天已经过去了。`;
     uncertain.push('信上的截止日期已经过去，请确认这封信是不是旧的。');
-  } else if (context.expectsPayment) {
+  } else if (context.amountLooksPaymentRelated) {
     whenDue = '信里没有找到明确的截止日期。';
     uncertain.push('截止日期没能确认。');
   }
