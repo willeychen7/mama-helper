@@ -976,8 +976,15 @@ const LETTER_CATEGORIES = [
    * State Farm 既卖车险也卖房险，光看机构名没用，
    * 只能靠保单里特有的术语来分。
    */
+  /*
+   * VIN 原来也在这条里，但它不是车险专属——挂号、验车、DMV 收费单
+   * 上一样会印 VIN。California DMV 一张内部收费小票（demo_image/
+   * ca-dmv-registration-fee.webp）只因为印了 VIN，就被判成车险，
+   * 而 dmv 那条也认 VIN 但权重只有 4，车险权重 7，VIN 一命中车险必赢。
+   * 车险已经有 6 个足够专属的词，去掉 VIN 不影响识别真正的车险信。
+   */
   { id: 'auto_insurance', cn: '车险', kinds: ['insurance'], baseUrgency: 'yellow',
-    re: /auto\s*(policy|insurance)|vehicle\s*(coverage|policy)|\bVIN\b|\bcollision\s*coverage\b|comprehensive\s*coverage|bodily\s*injury|uninsured\s*motorist|property\s*damage\s*liability|listed\s*drivers?/i, weight: 7 },
+    re: /auto\s*(policy|insurance)|vehicle\s*(coverage|policy)|\bcollision\s*coverage\b|comprehensive\s*coverage|bodily\s*injury|uninsured\s*motorist|property\s*damage\s*liability|listed\s*drivers?/i, weight: 7 },
 
   { id: 'home_insurance', cn: '房屋保险', kinds: ['insurance'], baseUrgency: 'yellow',
     re: /homeowners?\s*(policy|insurance)|dwelling\s*coverage|hazard\s*insurance|personal\s*property\s*coverage|loss\s*of\s*use|\bHO-?[3456]\b|renters?\s*insurance|replacement\s*cost\s*of\s*your\s*home|location\s*of\s*residence|residence\s*premises|\bcondo\s*unitowners?\b/i, weight: 7 },

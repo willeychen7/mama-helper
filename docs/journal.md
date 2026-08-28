@@ -28,6 +28,32 @@
 
 ---
 
+## 2026-08-28 · 🐛 DMV 收费小票被判成车险，因为车险和 DMV 抢同一个 VIN
+
+**被 `demo_image/ca-dmv-registration-fee.webp` 炸出来的**——一张
+California DMV 柜台打出来的内部收费小票（车辆登记费用明细，
+`TOTAL FEES DUE: $699.00`），类别判成了「车险」。
+
+**根因**：`\bVIN\b` 这个词同时写在 `auto_insurance`（权重 7）和
+`dmv`（权重 4）两条规则里。VIN 不是车险专属——登记、验车、DMV
+收费单上一样会印，两条规则都认它天经地义，但只要信里出现 VIN，
+车险靠权重差必赢，跟这封信到底是不是车险毫无关系。
+
+**改法**：把 VIN 从 `auto_insurance` 里删掉。车险已经有 6 个足够
+专属的词（auto policy/insurance、collision coverage、comprehensive
+coverage、bodily injury、uninsured motorist、property damage
+liability、listed drivers），去掉 VIN 不影响识别真正的车险信；
+VIN 留在 `dmv` 里，因为它对车管所类文件确实是常见特征。
+
+**改完之后**：类别变成 `dmv`（车管所），但内容分只有 4，够不到
+`trusted` 门槛，界面仍然显示「未确定」——这封信本身也确实特殊
+（柜台内部小票，没有正常信件抬头），分数不够高本身没错，
+但至少方向对了，不再自信地说错。
+
+六层回归全绿，`accuracy.test.mjs` 六个维度不变。
+
+---
+
 ## 2026-08-28 · 🐛 AAA 会员续费信被判成白卡年度复审
 
 **被 `demo_image/aaa-policy_renew.jpg` 炸出来的**——一封普通的 AAA
