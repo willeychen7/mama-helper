@@ -535,6 +535,12 @@ const EXPLICIT_ZERO_RE =
 const AUTOPAY_VALUE_RE =
   /billed\s*through|auto\s*-?pay|automatic\s*payment|on\s*file|enrolled|draft(ed)?\s*from/i;
 
+/*
+ * 线索层。详见 clues.js ——
+ * 它只在明确锚点一条都没命中时才说话，分数一律 < 80。
+ */
+import { matchClue } from './clues.js';
+
 const matchAnchor = (text, anchors, blockers) => {
   const raw = normalize(text);
   if (!raw) return null;
@@ -2277,7 +2283,22 @@ export function extractLetterFields(lines, options = {}) {
       return;
     }
 
-    const anchor = matchAnchor(line.text, DATE_ANCHORS, DATE_ANCHOR_BLOCKERS);
+    /*
+     * 先查明确锚点（29 条手写措辞，最准）。
+     * 一条都没命中，才让线索层用「零件组合」兜一下 ——
+     *   payments received after the due date will incur a late charge
+     *   a penalty of 10% will be added after November 1, 2024
+     *   Failure to remit by the date shown above may result in...
+     * 这些写法表里一条都没有，但零件齐全。
+     *
+     * 兜底出来的分数 < 80，抢不走任何明确锚点；
+     * 而且它只说「这句话在讲截止日」，值仍旧由空间匹配去找，
+     * 所以抽出来的日期一样指得回 OCR 的哪一行。
+     */
+    const blocked = DATE_ANCHOR_BLOCKERS.test(normalize(line.text));
+    const anchor =
+      matchAnchor(line.text, DATE_ANCHORS, DATE_ANCHOR_BLOCKERS) ||
+      (blocked ? null : matchClue(normalize(line.text), 'dueDate'));
     if (!anchor) return;
 
     const hit = findValueNearAnchor(line, safeLines, dateParser);

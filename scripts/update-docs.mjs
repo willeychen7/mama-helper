@@ -85,6 +85,7 @@ const suites = [
   ['第一梯队真实信', 'fieldExtractor.tier1.test.mjs'],
   ['手机实拍', 'fieldExtractor.photo.test.mjs'],
   ['斜纸重叠', 'fieldExtractor.slant.test.mjs'],
+  ['线索层', 'clues.test.mjs'],
   ['朗读安全', 'speech.test.mjs'],
   ['金额佐证', 'amount.corroboration.test.mjs'],
   ['版面还原', 'layoutText.test.mjs'],

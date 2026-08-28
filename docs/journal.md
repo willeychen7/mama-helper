@@ -1125,3 +1125,72 @@ If payment is received after 07/02/2025: $92.05
 另外正则里不能用 `\b` —— PP-OCR 不输出词间空格，
 整句粘成 `withaminimummonthlycharge`，`\bminimum` 永远匹配不上。
 
+---
+
+## 2026-08-28
+
+### ⚖️ 决定 07｜不再枚举整句，改枚举「零件」
+
+**背景**：项目里手写了 84 条英文措辞（日期锚点 29、金额锚点 25、
+句式词典 30）。每一条都是某封信教会我们的。
+问题是英文写同一件事的方式无限，表是有限的：
+
+```
+if payment is received after 07/02/2025: $92.05     ← 表里有
+payments received after the due date will incur...  ← 表里没有
+a penalty of 10% will be added after...             ← 表里没有
+```
+
+继续加 `if`，第 200 封信还是会遇到没见过的写法。
+
+**决定**：上面三句其实是同三个零件的不同排列。
+枚举整句要 5×6×6 = 180 条；枚举零件只要 17 个词 + 一条组合规则。
+把乘法搬到运行时做，而不是在表里预先展开。
+
+新增 `frontend/src/utils/clues.js`：7 个词类 + 7 条组合规则。
+
+| 词类 | 例词 |
+|---|---|
+| pay | payment / paid / remit / received / postmark |
+| after | after / past due / beyond / later than / following |
+| before | before / by / no later than / prior to / within |
+| consequence | late charge / penalt / delinquen / assess / incur / failure to |
+| deadline | due / deadline / expir / last day / must be received |
+| total | total / balance / amount due / pay this |
+| respond | respond / reply / return / submit / appeal / renew |
+
+**三条自我约束**（写死在文件头，别再放宽）：
+
+1. **永远是兜底**。明确锚点命中时它一句话都不说；
+   组合分数一律 < 80，抢不走任何明确锚点。
+   测试里有一条专门验证：同一封信里明确锚点和线索打架，必须信前者。
+2. **只说「这句话在讲哪个字段」，绝不说「值是多少」**。
+   值仍旧由空间匹配去找，所以抽出来的每个日期照样指得回
+   OCR 的哪一行、哪个框 —— 决定 01 不受影响。
+3. **每条线索带 why**，说明是哪几个零件凑出来的。
+   出错时能一眼看出哪个词类太宽。
+
+**词类正则一律不加 `\b`** —— PP-OCR 不输出词间空格。
+
+**误报实测**：WM 账单 50 行里只有 3 行被线索点亮，其中一行
+（`are canceled after initial acceptance you will be assessed...`）
+语义上确实是误报 —— 但它旁边没有日期，空间层找不到值，等于零成本。
+这正是「线索」和「值」分开的好处：**错的线索配不到值，就不会变成错的答案**。
+
+### ✅ 变更｜线索层接进截止日期抽取
+
+`clues.test.mjs`（13 条）：5 句表里完全没有的写法能认出来、
+5 句普通句子不乱响、明确锚点优先、无锚点时兜底仍有出处。
+
+其余 16 个测试套无回归。
+
+### 🐛 事故｜桥断线导致工作文件回退了 149 行
+
+设备桥中途断了一次，重连后 `fieldExtractor.js` 少了 149 行 ——
+`lateFee` 整块不见了，slant 测试从 5/5 掉到 4/5。
+不是代码问题，是文件系统状态。
+
+**教训**：桥断线之后不要接着编辑，先 `git diff --stat HEAD` 确认
+工作区还是不是自己以为的样子。这次靠 `git show HEAD:<path>` 恢复的
+—— 也说明及时 commit 的价值：如果那一版没提交，149 行就没了。
+
