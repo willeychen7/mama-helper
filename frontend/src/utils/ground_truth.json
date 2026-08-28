@@ -72,5 +72,98 @@
     "today": "2019-02-05",
     "statement_date": null,
     "statement_date_note": "只有 Bill Cycle Date: 01/25/19-01/27/19，是区间不是单个发信日"
+  },
+  "IRS_cp501": {
+    "note": "IRS 官方 CP501 样本（第一次催缴通知），姓名地址是占位符",
+    "category": "tax",
+    "sender": "IRS",
+    "today": "2019-02-01",
+    "amount_shown": 9533.53,
+    "payment_action": "pay",
+    "due_date": "2019-02-19",
+    "statement_date": "2019-01-28",
+    "statement_date_note": "Notice date January 28, 2019；到期日在正文里写成「Amount due, to be received by February 19, 2019」，换行后单独一行"
+  },
+  "IRS_cp503": {
+    "note": "IRS 官方 CP503 样本（第二次催缴通知），JAMES & KAREN Q. HINDS 是官方示例姓名，不是真人",
+    "category": "tax",
+    "sender": "IRS",
+    "today": "2018-01-15",
+    "amount_shown": 9533.53,
+    "payment_action": "pay",
+    "due_date": "2018-01-29",
+    "statement_date": "2018-01-08",
+    "statement_date_note": "Notice date January 8, 2018；到期日「Amount due by January 29, 2018」"
+  },
+  "IRS_CP504_Notice": {
+    "note": "IRS 官方 CP504 样本（法定欠税通知），姓名地址是占位符",
+    "category": "tax",
+    "sender": "IRS",
+    "today": "2019-02-01",
+    "amount_shown": 9533.53,
+    "payment_action": "pay",
+    "due_date": null,
+    "due_date_note": "只写「30 days from the date of this notice」，没有写死的具体日期，不该猜",
+    "statement_date": "2019-01-30",
+    "statement_date_note": "Notice date January 30, 2019"
+  },
+  "DMV_Registration": {
+    "note": "California DMV 官方车辆注册续期通知样本，GONZELES C 是官方示例姓名",
+    "category": "dmv",
+    "sender": "DMV",
+    "today": "2010-09-20",
+    "amount_shown": 95,
+    "payment_action": "pay",
+    "due_date": "2010-10-16",
+    "statement_date": null,
+    "statement_date_note": "只有 CURR EXP DATE / NEW EXP DATE（车牌到期日），没有「发信日期」这个字段"
+  },
+  "Medicare_Notice": {
+    "note": "CMS 官方 Medicare Summary Notice Part A 样本，明写 THIS IS NOT A BILL，JENNIFER WASHINGTON 是官方示例姓名",
+    "category": "medicare",
+    "sender": "Medicare",
+    "today": "2020-09-20",
+    "amount_shown": null,
+    "amount_shown_note": "页面上确实印着 $2,062.50（Total You May Be Billed），但这条锚点权重只有 60，需要佐证；没有分项求和/金额列/重复出现能佐证它，所以系统不采信，显示看不准。这是决定 01「宁可不猜」的合理结果——反正这封信 payment_action 也是 none，不强调金额不算漏报",
+    "payment_action": "none",
+    "due_date": null,
+    "statement_date": "2020-09-15",
+    "statement_date_note": "Date of This Notice September 15, 2020"
+  },
+  "SCE_Sample_Bill": {
+    "note": "SCE 官方账单说明样本，VALUED CUSTOMER 是占位符不是真名；同一页故意放了 Previous Balance / Wire credit adjustment / New charges / Total amount you owe / Amount due 五个金额，测的是候选排序不是单一正则",
+    "category": "electric",
+    "category_note": "页面没有 kWh / delivery charges 这类电费专用词（简化版样本），机构加权够但内容分不够，现在显示未确定，是已知的词典覆盖缺口，不是误判",
+    "sender": "SCE",
+    "today": "2020-04-25",
+    "amount_shown": 2149.55,
+    "payment_action": "pay",
+    "due_date": "2020-05-11",
+    "statement_date": "2020-04-21",
+    "statement_date_note": "Date bill prepared 04/21/20"
+  },
+  "SoCalGas": {
+    "note": "SoCalGas 官方样本账单，JOHN B DOE 是官方示例姓名，右上角方框「DATE DUE」词序反过来写",
+    "category": "gas",
+    "sender": "SoCalGas",
+    "today": "2015-12-20",
+    "amount_shown": 40.56,
+    "payment_action": "pay",
+    "due_date": "2016-01-08",
+    "statement_date": null,
+    "statement_date_note": "账单最上方的 DATE MAILED 那一行被拍照裁切掉了一半，OCR 只读出乱码，图里真的读不出来"
+  },
+  "Secured_Property_Tax": {
+    "note": "OC 财政局官方担保地税单样本，两期分别到期（11/1 和 2/1），Taxpayer, John Q 是官方示例姓名",
+    "category": "property_tax",
+    "sender": "County Tax Collector",
+    "today": "2011-11-15",
+    "amount_shown": 1822.02,
+    "amount_shown_note": "两期合计（911.01+911.01），页面本身也印着这个合计数，不是唯一「正确」答案——这是双期账单，没有单一金额能完整代表全部信息",
+    "payment_action": "pay",
+    "payment_action_note": "现在系统输出 none（不用交），是错的，故意不把 ground truth 改成迁就它——这是真正欠着 $1,822.02 的地税单。$1,822.02 这个候选金额靠「页面上重复出现」拿到了 trusted，但 isPaymentDemand 单独要求锚点权重 >=72，First/Second Installment 锚点权重只有 70，差 2 分没跨过去，于是「金额读对了」和「该不该显示要交钱」这两条判断在这封信上对不上。留着这一行显示 ❌，故意不隐藏，这是这批新样本里最危险的一条",
+    "due_date": "2011-12-10",
+    "due_date_note": "两期都缴清的最后期限（缴两期合计需在这天前完成，避免任何一期罚款）；两个单独的分期到期日（11/1、2/1）现在不体现在这个字段里",
+    "statement_date": null
   }
 }

@@ -67,6 +67,32 @@ const LABELS = {
     { text: 'MESQUITE', hipaa: 2, note: '收件人城市' },
     { text: '287289569829', hipaa: 11, note: '账号' },
     { text: '58037035', hipaa: 11, note: 'Foundation Account' }
+  ],
+  IRS_cp503: [
+    { text: 'JAMES&KARENQ.HINDS', hipaa: 1, note: '收件人姓名（官方示例姓名，非真人），OCR 粘连成一个词' },
+    { text: '22BOULDERSTREET', hipaa: 2, note: '收件人街道，OCR 粘连' },
+    { text: 'HANSON,CT00000-7253', hipaa: 2, note: '收件人城市州邮编，OCR 粘连' }
+  ],
+  DMV_Registration: [
+    { text: 'GONZELES C', hipaa: 1, note: '收件人姓名（官方示例姓名，非真人），「姓 名首字母」格式' },
+    { text: '3615 S H0PE ST', hipaa: 2, note: '收件人街道；OCR 把 O 认成了 0' },
+    { text: 'LOS ANGELES', hipaa: 2, note: '收件人城市' }
+  ],
+  Medicare_Notice: [
+    { text: 'JENNIFERWASHINGTON', hipaa: 1, note: '收件人姓名（官方示例姓名，非真人），「名 姓」格式，OCR 粘连——这正是正则抓不到的那种形状' },
+    { text: '1A23BC4DE56', hipaa: 10, note: 'Medicare Number' }
+  ],
+  SoCalGas: [
+    { text: 'JOHNBDOE', hipaa: 1, note: '收件人姓名（官方示例姓名，非真人），OCR 粘连' },
+    { text: '24915APPLE CT', hipaa: 2, note: '收件人街道，OCR 粘连' },
+    { text: 'MONTEREYPARKCA91754-2217', hipaa: 2, note: '收件人城市州邮编，OCR 粘连' }
+  ],
+  Secured_Property_Tax: [
+    { text: 'Taxpayer,John Q', hipaa: 1, note: '收件人姓名（官方示例姓名，非真人），「Taxpayer, 名」格式' },
+    { text: 'Taxpayer,Jane', hipaa: 1, note: '共同业主姓名（官方示例姓名，非真人）' },
+    { text: '1023 N Orange St', hipaa: 2, note: '收件人街道' },
+    { text: 'Orange,CA 92866', hipaa: 2, note: '收件人城市州邮编' },
+    { text: '987 Beachfront Ave', hipaa: 2, note: '房产地址（跟收件地址不是同一处）' }
   ]
 };
 
@@ -130,7 +156,7 @@ console.log(`总计 ${caught}/${total}  ${pct}%   （${Object.keys(LABELS).lengt
  *
  * 每修好一个，就把门槛往上调一格。
  */
-const BASELINE = 16; // 2026-08-27 的实测值
+const BASELINE = 24; // 2026-08-28 的实测值——样本从 5 封扩到 10 封后，姓名类漏检数量随之增加，属于测得更准，不是变差
 console.log(`\n门槛：至少挡住 ${BASELINE}/${total}（今天的水平，只许升不许降）`);
 
 const known = leaks.map((l) => `${l.letter} · ${l.text}（${l.note}）`);
