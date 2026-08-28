@@ -204,9 +204,17 @@ export const findDatesInText = (text, options = {}) => {
     match = numericRe.exec(raw);
   }
 
-  // 2) February 5, 2024 | Feb. 5 2024
+  /*
+   * 2) February 5, 2024 | Feb. 5 2024
+   *
+   * 日和年之间原来要求 \s+（至少一个空格）。IRS CP501/CP503 官方样本上
+   * 「January 28,2019」逗号后面直接贴着年份，一个空格都没有——
+   * PP-OCR 经常把逗号后的空格吃掉，跟这个项目里其他好几处 \b 断裂
+   * 是同一类问题。这里改成 \s*（允许零个空格），发信日期/截止日期
+   * 只要碰到这种写法就整条抽不出来，风险比误判大得多。
+   */
   const wordRe =
-    /\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b/g;
+    /\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s*(\d{4})\b/g;
   match = wordRe.exec(raw);
   while (match) {
     const month = MONTH_NAMES[match[1].toLowerCase()];
@@ -382,6 +390,21 @@ const DATE_ANCHORS = [
   { re: /\bdate\s*due\b/i, weight: 98 },
   { re: /\bpay\s*by\b/i, weight: 90 },
   { re: /\bdue\s*by\b/i, weight: 90 },
+  /*
+   * IRS CP503 官方样本：「Amount due by January 29, 2018」被 OCR 粘成
+   * 「AmountduebyJanuary29,2018」，一个空格都没有。\bdue\s*by\b 要求
+   * due 前面是词边界，但紧贴着的是「Amount」的 t，没有边界，锚点不触发。
+   * 跟决定里 IRS CP504 那次「amount due immediately」是同一类问题——
+   * 单独加一条覆盖这个粘连整体，due 和 by 之间也用 \s*（允许零空格）。
+   */
+  { re: /\bamount\s*due\s*by/i, weight: 90 },
+  /*
+   * IRS CP501 官方样本：「Amount due, to be received by February 19, 2019」
+   * 是两行版式，第二行「received by February 19, 2019」被粘成
+   * 「receivedbyFebruary19,2019」。这条不要求前面有 amount/due，
+   * 因为标签和日期在换行后的独立一行里，前面接的是「to be」不是「amount」。
+   */
+  { re: /\breceived\s*by/i, weight: 78 },
   { re: /\bpayable\s*by\b/i, weight: 86 },
   { re: /\bplease\s*pay\s*by\b/i, weight: 86 },
   { re: /\bpayment\s*due\b/i, weight: 82 },
