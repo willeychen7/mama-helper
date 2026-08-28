@@ -373,6 +373,13 @@ const AMOUNT_ANCHOR_BLOCKERS =
 const DATE_ANCHORS = [
   { re: /\bpayment\s*due\s*date\b/i, weight: 100 },
   { re: /\bdue\s*date\b/i, weight: 98 },
+  /*
+   * SoCalGas 官方样本账单：右上角一个方框，「DATE DUE」/「Jan 8, 2016」
+   * 词序反过来写，不是「due date」。原来 29 条锚点全是「due date /
+   * pay by / due by」这个词序，一条都不认反过来写的表格式标签，
+   * 于是账单上最显眼的日期反而抽不出来。
+   */
+  { re: /\bdate\s*due\b/i, weight: 98 },
   { re: /\bpay\s*by\b/i, weight: 90 },
   { re: /\bdue\s*by\b/i, weight: 90 },
   { re: /\bpayable\s*by\b/i, weight: 86 },
