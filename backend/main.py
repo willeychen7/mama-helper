@@ -136,6 +136,7 @@ def sanitize_ai_text_fields(data: dict) -> dict:
         "action_cn",
         "risk_reason_cn",
         "unclear_reason_cn",
+        "confidence_note_cn",
     ]
 
     for field in fields_to_mask:
@@ -308,12 +309,67 @@ JSON Schema:
 
 
 # =========================================================
+# 实验性接口：只发本地脱敏后的文字，不发图片
+#
+# 跟 /api/analyze-letter 不同：这里的输入已经在前端跑过
+# contentRedactor.buildTranslatablePayload，姓名/地址/账号等行
+# 被替换成了占位符 [个人信息已在本机隐藏]。这个接口拿到的
+# 只是脱敏后的纯文本，原始图片永远不会经过这里。
+#
+# 金额和到期日只作为「AI 的理解」展示，不能替代本地抽取结果——
+# 前端不会用这个接口的返回覆盖 letterFields。
+# =========================================================
+
+UNDERSTAND_TEXT_PROMPT = """
+You are a warm, empathetic community assistant helping elderly Chinese-Americans
+understand English mail.
+
+The text below is NOT the original letter. It has already been redacted on the
+user's own device: any line containing personal information (name, address,
+account number, phone, email) was removed and replaced with the placeholder
+[个人信息已在本机隐藏]. You are only seeing what remains.
+
+Rules:
+- Never guess or reconstruct what a [个人信息已在本机隐藏] placeholder might have
+  contained. Treat it only as "a line was removed here", nothing more.
+- If the remaining text is too fragmented to understand, say so honestly instead
+  of inventing an explanation.
+- Output ONLY a valid JSON object, no markdown fences.
+
+Tasks, based only on the text given:
+1. document_type: "Bill | Government_Notice | Court_Legal | Medical | Marketing | Other | Unknown"
+2. amount: number or null (only if explicitly present in the text)
+3. due_date: "YYYY-MM-DD" or "Unknown"
+4. summary_cn: 用 1-2 句大白话总结这封信是干嘛的，适合完全不懂英文的老人看
+5. action_cn: 明确告诉老人第一步该做什么；不需要处理就直接说「暂时不需要做什么」
+6. risk_reason_cn: 如果不处理可能会怎样，1 句话
+7. confidence_note_cn: 如果因为内容被脱敏或本身不完整，导致你不确定，用 1 句话
+   老实说明哪里不确定；完全确定就填 null
+
+JSON Schema:
+{
+  "document_type": "string",
+  "amount": number or null,
+  "due_date": "string",
+  "summary_cn": "string",
+  "action_cn": "string",
+  "risk_reason_cn": "string",
+  "confidence_note_cn": "string or null"
+}
+"""
+
+
+# =========================================================
 # Request Models
 # =========================================================
 
 class QuestionRequest(BaseModel):
     letter_context: dict
     user_question: str
+
+
+class UnderstandTextRequest(BaseModel):
+    text: str
 
 
 # =========================================================
@@ -719,6 +775,85 @@ async def analyze_letter(file: UploadFile = File(...)):
     return {
         "success": True,
         "data": unified_letter_data
+    }
+
+
+# =========================================================
+# 实验性接口：脱敏文字 -> AI 理解全文
+#
+# 输入是前端已经脱敏好的纯文本（不是图片，不是原始 OCR）。
+# 这条接口本身不做脱敏，脱敏必须在调用它之前，在用户自己的设备上完成。
+# =========================================================
+
+MAX_TEXT_LENGTH = 8000
+
+
+@app.post("/api/experimental/understand-text")
+async def understand_text(req: UnderstandTextRequest):
+
+    groq_key = os.getenv("GROQ_API_KEY")
+
+    if not groq_key:
+        raise HTTPException(
+            status_code=500,
+            detail="未检测到 GROQ_API_KEY"
+        )
+
+    text = (req.text or "").strip()
+
+    if not text:
+        raise HTTPException(
+            status_code=400,
+            detail="没有可理解的文字内容"
+        )
+
+    if len(text) > MAX_TEXT_LENGTH:
+        raise HTTPException(
+            status_code=413,
+            detail="文字内容过长"
+        )
+
+    try:
+        client = Groq(api_key=groq_key)
+
+        completion = client.chat.completions.create(
+            model="qwen/qwen3.6-27b",
+            messages=[
+                {
+                    "role": "user",
+                    "content": UNDERSTAND_TEXT_PROMPT + "\n\n---\n\n" + text
+                }
+            ],
+            response_format={"type": "json_object"},
+            reasoning_effort="none",
+            temperature=0.1
+        )
+
+        text_response = clean_json_response(
+            completion.choices[0].message.content.strip()
+        )
+
+        result = json.loads(text_response)
+
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=502,
+            detail="AI 返回内容无法解析，请稍后再试"
+        )
+
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="实验性理解功能暂时失败，请稍后再试"
+        )
+
+    if isinstance(result, dict):
+        result = sanitize_ai_text_fields(result)
+
+    return {
+        "success": True,
+        "experimental": True,
+        "data": result
     }
 
 

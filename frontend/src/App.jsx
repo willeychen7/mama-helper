@@ -1891,6 +1891,82 @@ export default function App() {
     setTranslatable
   ] = useState(null);
 
+  // ----------------------------------------------------------
+  // 实验性：脱敏文字 -> AI 理解全文
+  //
+  // 默认关闭。用户手动打开开关、再手动点确认发送，
+  // 每次发送都是当次的显式动作，不会自动或悄悄发出去。
+  // 只发 translatable.payloadText（已脱敏），不发图片、不发原始 OCR。
+  // 这里拿到的 amount / due_date 只作为「AI 怎么理解」展示，
+  // 绝不会覆盖上面 letterFields 里本地抽取出来的金额和日期。
+  // ----------------------------------------------------------
+  const [
+    experimentalEnabled,
+    setExperimentalEnabled
+  ] = useState(
+    () => localStorage.getItem('mama-helper-experimental-llm') === '1'
+  );
+
+  const [
+    experimentResult,
+    setExperimentResult
+  ] = useState(null);
+
+  const [
+    experimentLoading,
+    setExperimentLoading
+  ] = useState(false);
+
+  const [
+    experimentError,
+    setExperimentError
+  ] = useState(null);
+
+  const toggleExperimental = (checked) => {
+    setExperimentalEnabled(checked);
+    localStorage.setItem('mama-helper-experimental-llm', checked ? '1' : '0');
+    if (!checked) {
+      setExperimentResult(null);
+      setExperimentError(null);
+    }
+  };
+
+  const runExperimentalUnderstanding = async () => {
+    if (!translatable?.payloadText) return;
+
+    setExperimentLoading(true);
+    setExperimentError(null);
+    setExperimentResult(null);
+
+    try {
+      const backendUrl =
+        import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+
+      const res = await fetch(
+        `${backendUrl}/api/experimental/understand-text`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: translatable.payloadText })
+        }
+      );
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `请求失败（${res.status}）`);
+      }
+
+      const body = await res.json();
+      setExperimentResult(body.data);
+    } catch (err) {
+      setExperimentError(
+        err.message || '连不上后端，实验功能暂时用不了'
+      );
+    } finally {
+      setExperimentLoading(false);
+    }
+  };
+
 
   // ==========================================================
   // 无障碍：字号 + 朗读
@@ -4546,10 +4622,99 @@ export default function App() {
                         )}
 
                         <p className="text-sm font-bold text-slate-500">
-                          注意：翻译功能还没有接上后端。上面这段文字是
-                          「一旦接上、会发出去的全部内容」，你可以先核对
-                          有没有漏掉的个人信息。
+                          注意：上面这段文字是「一旦发送、会发出去的全部内容」，
+                          你可以先核对有没有漏掉的个人信息。
                         </p>
+
+                        {/* =========================================
+                            实验：脱敏文字 -> AI 理解全文
+                            默认关闭，需要用户主动打开开关 + 手动确认发送
+                        ========================================== */}
+
+                        <div className="bg-yellow-50 border-2 border-yellow-400 rounded-xl p-4 space-y-3">
+
+                          <label className="flex items-start gap-3 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              className="mt-1 w-5 h-5"
+                              checked={experimentalEnabled}
+                              onChange={(e) =>
+                                toggleExperimental(e.target.checked)
+                              }
+                            />
+                            <span className="text-base font-bold text-yellow-900">
+                              实验功能：打开后，可以把上面这段已脱敏的文字
+                              发给 AI，让它读懂全文大意（不发图片、不发原始
+                              OCR）。金额和到期日仍然只认本地识别的结果，
+                              这里 AI 给出的只作参考。
+                            </span>
+                          </label>
+
+                          {experimentalEnabled && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={runExperimentalUnderstanding}
+                                disabled={experimentLoading}
+                                className="w-full py-3 rounded-xl bg-yellow-500 hover:bg-yellow-600 disabled:opacity-50 text-white font-black text-lg"
+                              >
+                                {experimentLoading
+                                  ? '正在发送脱敏文字给 AI……'
+                                  : `确认发送这 ${translatable.stats.sendableCount} 处脱敏后的文字给 AI`}
+                              </button>
+
+                              {experimentError && (
+                                <p className="text-base font-bold text-red-700">
+                                  {experimentError}
+                                </p>
+                              )}
+
+                              {experimentResult && (
+                                <div className="bg-white border-2 border-yellow-300 rounded-xl p-4 space-y-2">
+
+                                  <p className="text-sm font-black text-yellow-700 uppercase">
+                                    实验性 · AI 理解结果 · 未经本地验算
+                                  </p>
+
+                                  <p className="text-lg font-bold text-slate-900">
+                                    {experimentResult.summary_cn}
+                                  </p>
+
+                                  <p className="text-base text-slate-800">
+                                    第一步该做什么：{experimentResult.action_cn}
+                                  </p>
+
+                                  <p className="text-base text-slate-800">
+                                    不处理的风险：{experimentResult.risk_reason_cn}
+                                  </p>
+
+                                  {(experimentResult.amount != null ||
+                                    experimentResult.due_date) && (
+                                    <p className="text-sm text-slate-500">
+                                      AI 读到的金额/日期（仅供参考，不是本地
+                                      结果）：
+                                      {experimentResult.amount != null
+                                        ? ` $${experimentResult.amount}`
+                                        : ''}
+                                      {experimentResult.due_date
+                                        ? ` · ${experimentResult.due_date}`
+                                        : ''}
+                                    </p>
+                                  )}
+
+                                  {experimentResult.confidence_note_cn && (
+                                    <p className="text-sm font-bold text-orange-700">
+                                      AI 自己说不确定的地方：
+                                      {experimentResult.confidence_note_cn}
+                                    </p>
+                                  )}
+
+                                </div>
+                              )}
+                            </>
+                          )}
+
+                        </div>
 
                       </div>
                     )}
