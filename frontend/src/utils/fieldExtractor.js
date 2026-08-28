@@ -1927,6 +1927,24 @@ export function extractLetterFields(lines, options = {}) {
     return `${normalize(above.text)} ${normalize(line.text)}`;
   };
 
+  /*
+   * 分项求和要在候选打分之前算出来，而不是等选完第一名再拿来验证——
+   * 见 journal 决定 08：三个信号（锚点词、空间关系、分项之和）
+   * 现在要一起参与「选谁」，不是选完之后才补一道体检。
+   */
+  const { column } = detectAmountColumn(safeLines, pageWidth);
+  const columnValues = column ? column.items.map((it) => it.value) : [];
+  const sumRelation = columnValues.length >= 3 ? findSumRelation(columnValues) : null;
+
+  /*
+   * 分项之和命中时给的加分。
+   * 量级参考：AMOUNT_ANCHORS 相邻档位常见差距在 5~10 分之间，
+   * 空间关系（hit.score * 0.3）的满分是 30。
+   * 定 15 分：够在锚点强度接近时把「对得上账」的候选拉到前面，
+   * 但压不过「total_amount_due（100 分）」这类最强锚点单独就能赢的情况。
+   */
+  const ARITHMETIC_MATCH_BONUS = 15;
+
   safeLines.forEach((line) => {
     let anchor = matchAnchor(line.text, AMOUNT_ANCHORS, AMOUNT_ANCHOR_BLOCKERS);
 
@@ -1948,15 +1966,32 @@ export function extractLetterFields(lines, options = {}) {
     const hit = findValueNearAnchor(line, safeLines, moneyParser);
     if (!hit) return;
 
+    const sumVerified =
+      Boolean(sumRelation) && Math.abs(sumRelation.total - hit.value) <= 0.02;
+
+    const evidence = {
+      semantic: { weight: anchor.weight, pattern: anchor.pattern },
+      spatial: { relation: hit.relation, score: hit.score },
+      arithmetic: {
+        sumVerified,
+        sumTotal: sumRelation ? sumRelation.total : null,
+        sumCount: sumRelation ? sumRelation.count : null
+      }
+    };
+
     amountCandidates.push({
       value: hit.value,
       box: hit.line,
       anchorLine: line,
       anchorText: normalize(line.text),
       relation: hit.relation,
-      score: anchor.weight + hit.score * 0.3,
+      score:
+        anchor.weight +
+        hit.score * 0.3 +
+        (sumVerified ? ARITHMETIC_MATCH_BONUS : 0),
       anchorWeight: anchor.weight,
-      confidence: hit.line.confidence
+      confidence: hit.line.confidence,
+      evidence
     });
   });
 
@@ -1989,10 +2024,6 @@ export function extractLetterFields(lines, options = {}) {
   });
 
   amountCandidates.sort((a, b) => b.score - a.score);
-
-  const { column } = detectAmountColumn(safeLines, pageWidth);
-  const columnValues = column ? column.items.map((it) => it.value) : [];
-  const sumRelation = columnValues.length >= 3 ? findSumRelation(columnValues) : null;
 
   const amount = amountCandidates[0] || null;
 
