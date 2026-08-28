@@ -28,6 +28,37 @@
 
 ---
 
+## 2026-08-28 · 🐛 IRS 欠税通知的金额完全抽不出来——「due」和「immediately」被 OCR 粘一起了
+
+**被 `demo_image/IRS_CP504_Notice.png` 炸出来的**——IRS 官方 CP504
+样本（法定欠税通知），信上明明大字写着「Amount due immediately:
+$9,533.53」，`amount.trusted` 却是 `false`，`value` 是 `null`——
+不是选错候选，是**一个候选都没生成**。
+
+**根因**：PP-OCR 不输出词间空格，这一行被识别成
+`Amount dueimmediately: $9,533.53`。金额锚点 `\bamount\s*due\b`
+里的 `\b` 要求 `due` 后面是词边界，但紧跟着的是 `immediately` 的
+`i`，两个都是单词字符，没有边界，锚点整条不触发。信上分项算得
+清清楚楚（$9,444.07 + $34.98 + $54.48 = $9,533.53），但决定 08
+里新加的「分项求和参与排序」在这种情况下帮不上任何忙——排序
+再合理，候选一个都没有，排的是空气。
+
+**改法**：加一条新锚点 `\bamount\s*due\s*immediately`，due 和
+immediately 之间用 `\s*`（允许零个空格），末尾不加 `\b`，权重 97。
+
+**改完之后**：`amount.trusted=true`，`value=9533.53`，跟原图完全对上；
+`amount_sum_verified` 也从失败列表里消失了——候选一旦生成出来，
+决定 08 那套排序证据立刻就用上了分项求和。
+
+**没有做的**：没有把 `AMOUNT_ANCHORS`/`DATE_ANCHORS` 全部去掉 `\b`
+改成像 `clues.js` 那样容忍粘连——那是更大的改动，会显著放宽误报
+风险，这次只加了这一条具体措辞对应的锚点。`\b` 导致粘连词失配
+是系统性问题，不止这一处，但不在这次要处理的范围里。
+
+六层回归全绿，`accuracy.test.mjs` 六个维度不变。
+
+---
+
 ## 2026-08-28 · 🐛 DMV 收费小票被判成车险，因为车险和 DMV 抢同一个 VIN
 
 **被 `demo_image/ca-dmv-registration-fee.webp` 炸出来的**——一张

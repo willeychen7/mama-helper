@@ -303,6 +303,17 @@ const AMOUNT_ANCHORS = [
   { re: /\btotal\s*due\b/i, weight: 95 },
   { re: /\bamount\s*due\b/i, weight: 92 },
   /*
+   * IRS CP504（法定欠税通知）官方样本：「Amount due immediately: $9,533.53」。
+   * OCR 把 due 和 immediately 粘成了一个词 dueimmediately（PP-OCR 不输出
+   * 词间空格），\bamount\s*due\b 的 \b 要求 due 后面是词边界，
+   * 紧跟着的 i 不是边界，于是这条锚点整个不触发，金额完全抽不出来——
+   * 账单上明明写着 9444.07 + 34.98 + 54.48 = 9533.53，分项求和都对得上，
+   * 但候选一个都没生成，参与排序的证据再多也没用。
+   * 这条锚点末尾不加 \b（等 immediately 收尾就够），due 和 immediately
+   * 之间零空格也能连上。
+   */
+  { re: /\bamount\s*due\s*immediately/i, weight: 97 },
+  /*
    * 「Total Account Balance Due」/「Total Balance Due」是明确的总额，
    * 和裸的「Balance Due」不是一回事 ——
    * 分期付款账单上会同时印着
