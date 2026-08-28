@@ -72,7 +72,7 @@ dictionary sizes behind it.
 | `contentRedactor.recall.test.mjs` | 脱敏召回 16/21 |
 | `knowledge.test.mjs` | 知识库 12 通过 / 0 失败 |
 
-Dictionary sizes: 已知机构 40 · 信件类别 26 · 信件子类型 15 · 金额锚点 25 · 日期锚点 29 · 句式词典 30 · 诈骗特征 9 · 交叉校验 20 · 知识库词条 38.
+Dictionary sizes: 已知机构 40 · 信件类别 26 · 信件子类型 15 · 金额锚点 26 · 日期锚点 30 · 句式词典 30 · 诈骗特征 9 · 交叉校验 20 · 知识库词条 38.
 
 <!-- AUTO:END -->
 
