@@ -949,8 +949,15 @@ const LETTER_CATEGORIES = [
   { id: 'medicare', cn: '红蓝卡 Medicare', kinds: ['medicare'], baseUrgency: 'yellow',
     re: /\bmedicare\s*(summary\s*notice|advantage|part\s*[abcd])\b|\bMSN\b|annual\s*notice\s*of\s*change|\bANOC\b|evidence\s*of\s*coverage|\bIRMAA\b|medicare\s*number/i, weight: 4 },
 
+  /*
+   * 「keep your (medi-cal )?coverage」这条以前 medi-cal 那个分组是可选的——
+   * 本意是抓「keep your medi-cal coverage」，但可选分组等于
+   * 「keep your coverage」单独也算数。AAA 会员续费信里一句
+   * 「Keep your coverage going.」（跟白卡毫无关系）就这么撞上了，
+   * 被判成白卡续保通知。分组改成必须出现。
+   */
   { id: 'medi_cal', cn: '白卡 Medi-Cal', kinds: ['medi_cal'], baseUrgency: 'orange',
-    re: /\bmedi[-\s]cal\b|annual\s*redetermination|\bMC\s*2(10|16|17)\b|notice\s*of\s*action|keep\s*your\s*(medi[-\s]cal\s*)?coverage|renew\s*your\s*medi[-\s]cal/i, weight: 4 },
+    re: /\bmedi[-\s]cal\b|annual\s*redetermination|\bMC\s*2(10|16|17)\b|notice\s*of\s*action|keep\s*your\s*medi[-\s]cal\s*coverage|renew\s*your\s*medi[-\s]cal/i, weight: 4 },
 
   { id: 'social_security', cn: '社安局 SSA', kinds: ['social_security'], baseUrgency: 'orange',
     re: /social\s*security|\bSSI\b|cost-?of-?living\s*adjustment|\bCOLA\b|benefit\s*verification|award\s*letter|\bSSA-\d{3,4}\b|continuing\s*disability\s*review/i, weight: 4 },
@@ -1156,8 +1163,13 @@ const LETTER_SUBTYPES = [
      * MC 216 是现在真正在寄的那张年度复审表（MC 210 RV 是旧的）。
      * 官方措辞是「Your Medi-Cal is up for renewal.」，
      * 比旧版的「annual redetermination」软得多，原来一条都不命中。
+     *
+     * 「keep your coverage」原来是裸词，没有要求 medi-cal 一起出现——
+     * AAA 会员续费信里一句普通的「Keep your coverage going.」就撞了进来，
+     * 被判成白卡复审。改成要求 400 字符窗口内也出现 medi-cal 字样
+     * （真实 DHCS 信件抬头/落款一定会写 Medi-Cal，AAA 这类信永远不会）。
      */
-    re: /annual\s*redetermination|renew\s*your\s*medi[-\s]cal|keep\s*your\s*coverage|\bMC\s*2(10\s*RV|16|17)\b|medi[-\s]cal\s*(is\s*up\s*for\s*renewal|renewal\s*form)|your\s*medi[-\s]cal\s*is\s*up\s*for\s*renewal/i,
+    re: /annual\s*redetermination|renew\s*your\s*medi[-\s]cal|medi[-\s]cal[\s\S]{0,400}keep\s*your\s*coverage|keep\s*your\s*coverage[\s\S]{0,400}medi[-\s]cal|\bMC\s*2(10\s*RV|16|17)\b|medi[-\s]cal\s*(is\s*up\s*for\s*renewal|renewal\s*form)|your\s*medi[-\s]cal\s*is\s*up\s*for\s*renewal/i,
     gist: '这是白卡（Medi-Cal）的年度资格复审。必须按时把表格填好寄回，否则医疗保险会被停掉。', urgency: 'red' },
 
   { id: 'COLA', category: 'social_security', notABill: true, cn: '社安金生活费调整通知（COLA）', re: /cost-?of-?living\s*adjustment|\bCOLA\b.*(notice|increase)/i,

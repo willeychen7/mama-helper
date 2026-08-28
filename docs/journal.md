@@ -28,6 +28,35 @@
 
 ---
 
+## 2026-08-28 · 🐛 AAA 会员续费信被判成白卡年度复审
+
+**被 `demo_image/aaa-policy_renew.jpg` 炸出来的**——一封普通的 AAA
+道路救援会员续费通知，金额 $88 抽对了，类别却判成了「白卡 Medi-Cal」。
+
+**根因有两处，同一句话踩中了两条不同的规则：**
+
+1. `LETTER_CATEGORIES` 里 `medi_cal` 那条锚点：
+   `keep\s*your\s*(medi[-\s]cal\s*)?coverage`——中间那个分组是可选的，
+   本意是抓「keep your medi-cal coverage」，可选分组等于「keep your
+   coverage」单独也算数。AAA 信里「**Keep your coverage** going.」
+   （跟白卡毫无关系）就这么撞了进来。
+2. `LETTER_SUBTYPES` 的 `REDETERMINATION` 子类型里也有一条裸的
+   `keep\s*your\s*coverage`，同样没要求 medi-cal 一起出现，而且子类型
+   命中后会**强制覆盖类别**——就算 (1) 没改，这条也照样会把类别
+   锁死成白卡。两处必须一起改，改一处测试照样红。
+
+**改法**：(1) 分组改成必须出现（`keep\s*your\s*medi[-\s]cal\s*coverage`）；
+(2) 改成要求 400 字符窗口内也出现 `medi[-\s]cal` 字样——真实 DHCS
+复审信抬头/落款一定会写 Medi-Cal，AAA 这类信永远不会提这个词。
+
+**改完之后的结果**：类别变成「未确定」，不是猜出别的类别。
+`auto_insurance` 靠 AAA 的机构加权拿到 8 分，但内容分是 0（信里没有
+车险专用词），够不到 `trusted` 的门槛（score≥6 且 contentScore≥3
+两个都要满足），所以老实显示「认不出类别」——这是对的行为：
+AAA 会员续费本来就不在现有类别词典里，宁可说不知道，也不能瞎猜。
+
+六层回归全绿，`accuracy.test.mjs` 六个维度不变。
+
 ## 2026-08-28 · ⚖️ 决定 08：分项求和从「选完再验」改成「参与排序」
 
 **背景**：金额抽取一直是「关键词锚点 + 空间关系」两个信号打分选出候选，
