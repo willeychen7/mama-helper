@@ -125,6 +125,43 @@ export const parsePureMoney = (text) => {
   };
 };
 
+/*
+ * parsePureMoney 的裸数字版——不要求 $。
+ *
+ * 只给「右对齐金额列检测」（detectAmountColumn）用，**绝不能**用来
+ * 生成候选金额本身，决定 06 的门槛只对"这个数是不是要交的答案"
+ * 生效，不管"这个数能不能参与验证已经选出来的答案对不对"。
+ *
+ * 起因：Zylker Healthcare 发票只有 Total 一行带 $，Sub Total /
+ * Tax Rate / 三个分项全是裸数字，导致 detectAmountColumn 一个成员
+ * 都收不到（少于 3 个直接放弃），分项求和这道校验形同虚设——
+ * 900+10,000+3,000=13,900、13,900+695=14,595，账本来是能对上的，
+ * 但因为分项没有 $，这个印证过程从来没机会发生，于是本该很确信的
+ * $14,595.00 只能显示"看不准"。
+ *
+ * 用这个函数生成的候选**只送进分项求和/金额列这两个佐证通道**，
+ * 不会绕过"候选金额本身必须带 $"这条门槛——即使分项求和验证通过，
+ * 被验证、被显示为"应缴金额"的那个数字，仍然只能是走正常候选
+ * 生成流程、本身带 $ 的那个。
+ */
+const parsePureMoneyLoose = (text) => {
+  const raw = normalize(text);
+  if (!raw) return null;
+  const looseRe =
+    /^\(?\s*-?\s*\$?\s*(\d{1,3}(?:,\d{3})+|\d+)(?:[.,](\d{2}))\s*\)?\s*(CR|cr)?$/;
+  const match = raw.match(looseRe);
+  if (!match) return null;
+  const value = toNumber(match[1], match[2]);
+  if (value === null) return null;
+  const isCredit = /^\(/.test(raw) || /CR$/i.test(raw) || /^-|\s-/.test(raw);
+  return {
+    value: isCredit ? -value : value,
+    hasDollarSign: raw.includes('$'),
+    isCredit,
+    raw
+  };
+};
+
 /** 从一行里找出所有带 $ 的金额 */
 export const findMoneyInText = (text) => {
   const raw = normalize(text);
@@ -776,7 +813,7 @@ const detectAmountColumn = (lines, pageWidth) => {
   const moneyLines = [];
 
   for (let i = 0; i < lines.length; i += 1) {
-    const parsed = parsePureMoney(lines[i].text);
+    const parsed = parsePureMoneyLoose(lines[i].text);
     if (parsed) {
       moneyLines.push({ line: lines[i], ...parsed });
     }
@@ -848,7 +885,25 @@ export const findSumRelation = (values, tolerance = 0.02) => {
        */
       if (Math.abs(sum) > 0.005 && Math.abs(sum - values[end]) <= tolerance) {
         const count = end - start;
-        if (!best || count > best.count) {
+        /*
+         * 先比 end，再比 count。
+         *
+         * Zylker 发票那张样本被炸出来的问题：分项列按页面从上到下排，
+         * 900+10000+3000=13,900（Sub Total，count 3）和
+         * 13,900+695=14,595（Total，count 2）都能对上。
+         * 旧写法「谁的分项多选谁」会选中 Sub Total 那一环，
+         * 于是「分项之和验证」验证的是小计，不是老人真正要交的总额 ——
+         * 明明算对了账，却因为选错了链条而报「对不上」。
+         *
+         * 总额永远排在小计后面（page 越往下越接近最终合计），
+         * 所以该优先选 end 更靠后的那一环，count 只用来在 end 相同时
+         * 做次要的 tie-break。
+         */
+        if (
+          !best ||
+          end > best.end ||
+          (end === best.end && count > best.count)
+        ) {
           best = { start, end, count, sum, total: values[end] };
         }
       }
@@ -3508,6 +3563,19 @@ function buildLayer0(fields, context) {
     howMuch = `这封信不是账单，不用交钱。（信上的 ${formatMoneyCn(
       fields.amount.value
     )} 美元是费用明细，不是要您付的钱。）`;
+  } else if (context.amountLooksPaymentRelated && fields.amount.trusted) {
+    /*
+     * 金额本身已经抽对了（trusted），只是没能确认它就是「要交的那一笔」
+     * （isPaymentDemand 需要更强的锚点证据）。这和「金额本身没读出来」
+     * 是两件事，不能用同一句「没能确认具体金额」糊弄过去 —— 否则数字
+     * 明明抽出来了，老人却看不到。被 Medical_Invoice 这张发票样本
+     * 炸出来的：Total 只有 35 分锚点，isPaymentDemand 判不了，但金额
+     * 列校验（sum/column）已经把 $14,595.00 的可信度立住了。
+     */
+    howMuch = `信上写的金额是 ${formatMoneyCn(
+      fields.amount.value
+    )} 美元，但小助手不确定这就是您需要交的那一笔。`;
+    uncertain.push('这笔钱是不是要交的，没能确认。');
   } else if (context.amountLooksPaymentRelated) {
     howMuch = '这封信看起来和缴费有关，但小助手没能确认具体金额。';
     uncertain.push('应缴金额没能确认。');

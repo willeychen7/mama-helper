@@ -29,6 +29,64 @@
 
 ---
 
+## 2026-08-28 · 🐛 Medical_Invoice 金额明明抽对了，却还是显示「没能确认」
+
+**被用户在实测三态拆分后追问炸出来的**：上一条改动把"要不要交"（`isPaymentDemand`）
+和"看起来和缴费有关"（`amountLooksPaymentRelated`）拆开之后，用户又问
+「为什么还是没有显示金额」——查下去发现这不是一个 bug，是两个。
+
+**根因一：`detectAmountColumn` 一直在用带 `$` 门槛的 `parsePureMoney`，把自己的分项全过滤掉了。**
+
+Zylker 发票样本整页只有 Total 一处带 `$`（`$14,595.00`），Sub Total
+`13,900.00`、Tax `695`、三个分项 `900.00`/`10,000.00`/`3,000.00` 全是裸数字——
+这本来是决定 06 故意要的效果（防止把任意数字当金额）。但 `detectAmountColumn`
+是**佐证**逻辑，不是候选生成，它需要看到整列（哪怕列里有裸数字）才能判断
+"这一列凑得上账"。用严格版 `parsePureMoney` 导致 `moneyLines.length` 永远
+只有 1，连不上列，`amount_in_column` 这条佐证从头到尾没机会跑。
+
+**修法**：新增 `parsePureMoneyLoose`（`$` 可选的宽松版），**只给
+`detectAmountColumn` 内部用**，候选生成（`parseCandidateValue`/主循环）继续
+用严格版 `parsePureMoney`——决定 06 的门槛管的是"什么能当候选"，不是"佐证时
+允许看到什么"，两者不冲突。
+
+**根因二：`findSumRelation` 的"分项数量多者优先"选错了链条。**
+
+`detectAmountColumn` 修好之后列里是按页面从上到下排的
+`[900, 10000, 3000, 13900, 695, 14595]`。两条链都能对上账：
+`900+10000+3000=13900`（count 3，验证的是 Sub Total）和
+`13900+695=14595`（count 2，验证的才是真正的 Total）。旧写法"谁的分项多
+选谁"选中了前者，于是"分项之和验证"验证的是小计不是总额——账本身算对了，
+却因为链选错了而报"对不上"。改成优先比较 `end`（更靠后 = 更接近页面最终
+合计），`count` 只在 `end` 相同时做 tie-break。
+
+**根因三（这才是用户问题的直接原因）：`howMuch` 的 if/else 链把
+"这是不是要交的那笔"（`isPaymentDemand`）和"这个数字本身有没有抽对"
+（`amount.trusted`）当成了一件事。**
+
+三态拆分只改了内部字段和判断依据，没有改消息模板——`isPaymentDemand` 为
+false 时无论 `trusted` 是不是 true，都落到同一句"没能确认具体金额"。
+Medical_Invoice 的 Total 锚点只有 35 分，赢不了 `isPaymentDemand` 要求的
+72 分门槛，但金额本身早就靠列校验立住了（`trusted: true`）——用户看到的
+应该是"这个数，只是不确定是不是要交"，不是"这个数没读出来"。
+
+**修法**：在 `amountLooksPaymentRelated` 分支前插入一支
+`amountLooksPaymentRelated && fields.amount.trusted`，把确认的数字念出来，
+只在"是不是要交"这一层打问号。
+
+**验证**：`accuracy.test.mjs` 金额列从改动前的"看不准"变成 15/15 100%
+（`payment_action` 维度仍是 14/15——Medical_Invoice 这一项没变好，这是
+预期内的：`AMOUNT_ANCHORS` 目前只编码"这个词在账单里有多常见"（权重），
+不编码"这次出现是不是一条付款指令"，"Total" 这种词天生两种场合都用，
+35 分锚点本来就不该越过 `isPaymentDemand` 的门槛——这个缺口在决定 09 附近
+已经写明是要等真实冲突样本才能安全解决的，这次不动它。六层回归全绿，
+`Medical_Invoice` 现在人读到的是：
+
+> 信上写的金额是 14,595.00 美元，但小助手不确定这就是您需要交的那一笔。
+
+而不是此前的"没能确认具体金额"。
+
+---
+
 ## 2026-08-28 · ✅ 姓名检测合并成一份，`detectLocalPII` 现在也认识 [NAME]
 
 **被用户实测 Allina Health 医院账单炸出来的**——「查看最终 OCR 文字」

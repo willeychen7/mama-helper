@@ -56,7 +56,7 @@ dictionary sizes behind it.
 
 | Suite | Result |
 |---|---|
-| **Real bills, hand-labeled ground truth** | 15 letters × 5 fields — category 13/15 87%   amount 14/15 93%   payment 14/15 93%   due date 15/15 100%   statement date 14/15 93% |
+| **Real bills, hand-labeled ground truth** | 15 letters × 5 fields — category 13/15 87%   amount 15/15 100%   payment 14/15 93%   due date 15/15 100%   statement date 14/15 93% |
 | `fieldExtractor.test.mjs` | 17 通过 / 0 失败 |
 | `fieldExtractor.real.test.mjs` | 真实措辞 6 通过 / 0 失败 |
 | `fieldExtractor.split.test.mjs` | 9 通过 / 0 失败 |
