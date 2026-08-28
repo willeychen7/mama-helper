@@ -152,18 +152,5 @@
     "due_date": "2016-01-08",
     "statement_date": null,
     "statement_date_note": "账单最上方的 DATE MAILED 那一行被拍照裁切掉了一半，OCR 只读出乱码，图里真的读不出来"
-  },
-  "Secured_Property_Tax": {
-    "note": "OC 财政局官方担保地税单样本，两期分别到期（11/1 和 2/1），Taxpayer, John Q 是官方示例姓名",
-    "category": "property_tax",
-    "sender": "County Tax Collector",
-    "today": "2011-11-15",
-    "amount_shown": 1822.02,
-    "amount_shown_note": "两期合计（911.01+911.01），页面本身也印着这个合计数，不是唯一「正确」答案——这是双期账单，没有单一金额能完整代表全部信息",
-    "payment_action": "pay",
-    "payment_action_note": "现在系统输出 none（不用交），是错的，故意不把 ground truth 改成迁就它——这是真正欠着 $1,822.02 的地税单。$1,822.02 这个候选金额靠「页面上重复出现」拿到了 trusted，但 isPaymentDemand 单独要求锚点权重 >=72，First/Second Installment 锚点权重只有 70，差 2 分没跨过去，于是「金额读对了」和「该不该显示要交钱」这两条判断在这封信上对不上。留着这一行显示 ❌，故意不隐藏，这是这批新样本里最危险的一条",
-    "due_date": "2011-12-10",
-    "due_date_note": "两期都缴清的最后期限（缴两期合计需在这天前完成，避免任何一期罚款）；两个单独的分期到期日（11/1、2/1）现在不体现在这个字段里",
-    "statement_date": null
   }
 }

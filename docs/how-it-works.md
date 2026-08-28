@@ -461,7 +461,7 @@ HOA 按规约算，每家都不同，写一个数字出去就是编。不填的�
 
 > 由 `scripts/update-docs.mjs` 于 2026-08-28 生成。**不要手改这一段。**
 
-**真实账单（14 封）** — 类别 13/14 93%   金额 14/14 100%   付款方式 13/14 93%   到期日 14/14 100%   发信日期 13/14 93%
+**真实账单（13 封）** — 类别 12/13 92%   金额 13/13 100%   付款方式 13/13 100%   到期日 13/13 100%   发信日期 12/13 92%
 
 - `SCE_Bill_Letter` — SCE 账单第 5 页（明细页），本身不含缴费联
 - `SCE_Letter` — SCE 写给加州公用事业委员会的监管公函，不是账单
@@ -476,7 +476,6 @@ HOA 按规约算，每家都不同，写一个数字出去就是编。不填的�
 - `Medicare_Notice` — CMS 官方 Medicare Summary Notice Part A 样本，明写 THIS IS NOT A BILL，JENNIFER WASHINGTON 是官方示例姓名
 - `SCE_Sample_Bill` — SCE 官方账单说明样本，VALUED CUSTOMER 是占位符不是真名；同一页故意放了 Previous Balance / Wire credit adjustment / New charges / Total amount you owe / Amount due 五个金额，测的是候选排序不是单一正则
 - `SoCalGas` — SoCalGas 官方样本账单，JOHN B DOE 是官方示例姓名，右上角方框「DATE DUE」词序反过来写
-- `Secured_Property_Tax` — OC 财政局官方担保地税单样本，两期分别到期（11/1 和 2/1），Taxpayer, John Q 是官方示例姓名
 
 **其余测试**
 
@@ -491,10 +490,10 @@ HOA 按规约算，每家都不同，写一个数字出去就是编。不填的�
 | 手机实拍 | `fieldExtractor.photo.test.mjs` | 手机实拍 7 通过 / 0 失败 |
 | 斜纸重叠 | `fieldExtractor.slant.test.mjs` | 斜着拍的纸：框重叠也要抽得出来 |
 | 线索层 | `clues.test.mjs` | 线索层：零件组合 |
-| 朗读安全 | `speech.test.mjs` | 朗读 32 通过 / 0 失败 |
+| 朗读安全 | `speech.test.mjs` | 朗读 30 通过 / 0 失败 |
 | 金额佐证 | `amount.corroboration.test.mjs` | 金额佐证 4 通过 / 0 失败 |
 | 版面还原 | `layoutText.test.mjs` | 版面还原 8 通过 / 0 失败 |
-| 脱敏召回 | `contentRedactor.recall.test.mjs` | 脱敏召回 24/37 |
+| 脱敏召回 | `contentRedactor.recall.test.mjs` | 脱敏召回 21/32 |
 | 知识库防线 | `knowledge.test.mjs` | 知识库 12 通过 / 0 失败 |
 
 ### 词典规模

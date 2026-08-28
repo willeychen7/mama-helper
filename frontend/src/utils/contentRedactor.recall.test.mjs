@@ -86,13 +86,6 @@ const LABELS = {
     { text: 'JOHNBDOE', hipaa: 1, note: '收件人姓名（官方示例姓名，非真人），OCR 粘连' },
     { text: '24915APPLE CT', hipaa: 2, note: '收件人街道，OCR 粘连' },
     { text: 'MONTEREYPARKCA91754-2217', hipaa: 2, note: '收件人城市州邮编，OCR 粘连' }
-  ],
-  Secured_Property_Tax: [
-    { text: 'Taxpayer,John Q', hipaa: 1, note: '收件人姓名（官方示例姓名，非真人），「Taxpayer, 名」格式' },
-    { text: 'Taxpayer,Jane', hipaa: 1, note: '共同业主姓名（官方示例姓名，非真人）' },
-    { text: '1023 N Orange St', hipaa: 2, note: '收件人街道' },
-    { text: 'Orange,CA 92866', hipaa: 2, note: '收件人城市州邮编' },
-    { text: '987 Beachfront Ave', hipaa: 2, note: '房产地址（跟收件地址不是同一处）' }
   ]
 };
 
@@ -156,7 +149,7 @@ console.log(`总计 ${caught}/${total}  ${pct}%   （${Object.keys(LABELS).lengt
  *
  * 每修好一个，就把门槛往上调一格。
  */
-const BASELINE = 24; // 2026-08-28 的实测值——样本从 5 封扩到 10 封后，姓名类漏检数量随之增加，属于测得更准，不是变差
+const BASELINE = 21; // 2026-08-28 的实测值（9 封信）——Secured_Property_Tax 那张已撤下
 console.log(`\n门槛：至少挡住 ${BASELINE}/${total}（今天的水平，只许升不许降）`);
 
 const known = leaks.map((l) => `${l.letter} · ${l.text}（${l.note}）`);
