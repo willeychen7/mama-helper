@@ -2011,33 +2011,110 @@ export function extractLetterFields(lines, options = {}) {
    */
   const ARITHMETIC_MATCH_BONUS = 15;
 
-  safeLines.forEach((line) => {
-    let anchor = matchAnchor(line.text, AMOUNT_ANCHORS, AMOUNT_ANCHOR_BLOCKERS);
+  /*
+   * 决定 09：候选生成不再要求「先找到锚点才算候选」。
+   *
+   * 旧写法是「扫锚点行 → 找它附近的钱」——锚点是硬性前提，一个
+   * 锚点都没匹配到，候选就一个都不会生成，后面写多少证据、调多少
+   * 权重都救不回来。IRS CP504「Amount dueimmediately」那次、
+   * OC 地税单「$1,822.02」那次，本质都是这个问题：真正该赢的值，
+   * 因为附近没有强锚点（或者锚点被 OCR 粘连坏了），从一开始就没能
+   * 成为候选，只能眼睁睁看着一个凑巧沾了裸 total/弱锚点的候选胜出。
+   *
+   * 反过来写：**先把页面上所有带 $ 的值都当候选**（`moneyParser`
+   * 本来就只认带 $ 的写法，决定 06 已经把这道门槛卡住了），再对
+   * 每个候选去问「它附近有没有能撑住它的证据」——锚点词、空间关系、
+   * 分项求和，一起打分。附近没有强锚点的候选依然会生成，只是分数
+   * 会低；只要它的证据（尤其是分项求和）足够扎实，还有机会在排序里
+   * 追上来，而不是从一开始就被排除在竞争之外。
+   *
+   * findAmountAnchorNear 是 findValueNearAnchor 的镜像版本——原来是
+   * 「从锚点出发找值」，这里是「从值出发找锚点」，用的是同一套
+   * 空间关系（同行/正下方）和同一套两行表头合并逻辑
+   * （anchorTextWithHeaderAbove 直接复用，不重写）。
+   */
+  const findAmountAnchorNear = (candidateLine) => {
+    const unit = Math.max(1, candidateLine.height || 20);
+    let best = null;
 
-    const merged = anchorTextWithHeaderAbove(line);
-    if (merged) {
-      const mergedAnchor = matchAnchor(
-        merged,
-        AMOUNT_ANCHORS,
-        AMOUNT_ANCHOR_BLOCKERS
-      );
-      // 只有拼起来更强才用，否则维持单行的判断
-      if (mergedAnchor && (!anchor || mergedAnchor.weight > anchor.weight)) {
-        anchor = mergedAnchor;
+    const consider = (anchorLine, relation) => {
+      let a = matchAnchor(anchorLine.text, AMOUNT_ANCHORS, AMOUNT_ANCHOR_BLOCKERS);
+      const merged = anchorTextWithHeaderAbove(anchorLine);
+      if (merged) {
+        const mergedAnchor = matchAnchor(merged, AMOUNT_ANCHORS, AMOUNT_ANCHOR_BLOCKERS);
+        if (mergedAnchor && (!a || mergedAnchor.weight > a.weight)) a = mergedAnchor;
+      }
+      if (a && (!best || a.weight > best.anchor.weight)) {
+        best = { anchor: a, relation, anchorLine };
+      }
+    };
+
+    // 候选值自己这一行，也可能同时是锚点行（"Balance Due 87.05"）
+    consider(candidateLine, 'same-line');
+
+    safeLines.forEach((line) => {
+      if (line === candidateLine) return;
+
+      // 锚点在候选左边、同一行——镜像原来"从锚点往右找值"的 right 关系
+      if (
+        verticalOverlapRatio(candidateLine, line) > 0.45 &&
+        line.right <= candidateLine.left + unit * 0.3
+      ) {
+        const gap = (candidateLine.left - line.right) / unit;
+        if (gap <= 25) consider(line, 'left');
+      }
+
+      // 锚点在候选正上方——镜像原来的 below 关系
+      if (
+        candidateLine.top >= line.bottom - unit * 0.5 &&
+        horizontalOverlapRatio(candidateLine, line) > 0.25
+      ) {
+        const gap = (candidateLine.top - line.bottom) / unit;
+        if (gap <= 3.2) consider(line, 'above');
+      }
+    });
+
+    return best;
+  };
+
+  /*
+   * 候选值优先用 parsePureMoney（能认出 (123.45) / 123.45 CR 这类
+   * 贷记写法），moneyParser 的 self 分支（findMoneyInText）不认这些
+   * 记号——AT&T 账单的 -$6.33 贷记余额如果走 self 分支会变回正数。
+   */
+  const parseCandidateValue = (line) => {
+    const pure = parsePureMoney(line.text);
+    if (pure) return pure.value;
+    return moneyParser(line, true);
+  };
+
+  safeLines.forEach((line) => {
+    const value = parseCandidateValue(line);
+    if (value === null || value === undefined) return;
+
+    const found = findAmountAnchorNear(line);
+    const semanticWeight = found ? found.anchor.weight : 0;
+    const unit = Math.max(1, line.height || 20);
+
+    let spatialScore = 0;
+    if (found) {
+      if (found.relation === 'same-line') {
+        spatialScore = 92;
+      } else if (found.relation === 'left') {
+        const gap = (line.left - found.anchorLine.right) / unit;
+        spatialScore = 100 - gap * 2;
+      } else if (found.relation === 'above') {
+        const gap = (line.top - found.anchorLine.bottom) / unit;
+        spatialScore = 85 - gap * 8;
       }
     }
 
-    if (!anchor) return;
-
-    const hit = findValueNearAnchor(line, safeLines, moneyParser);
-    if (!hit) return;
-
     const sumVerified =
-      Boolean(sumRelation) && Math.abs(sumRelation.total - hit.value) <= 0.02;
+      Boolean(sumRelation) && Math.abs(sumRelation.total - value) <= 0.02;
 
     const evidence = {
-      semantic: { weight: anchor.weight, pattern: anchor.pattern },
-      spatial: { relation: hit.relation, score: hit.score },
+      semantic: { weight: semanticWeight, pattern: found ? found.anchor.pattern : null },
+      spatial: { relation: found ? found.relation : null, score: spatialScore },
       arithmetic: {
         sumVerified,
         sumTotal: sumRelation ? sumRelation.total : null,
@@ -2046,17 +2123,17 @@ export function extractLetterFields(lines, options = {}) {
     };
 
     amountCandidates.push({
-      value: hit.value,
-      box: hit.line,
-      anchorLine: line,
-      anchorText: normalize(line.text),
-      relation: hit.relation,
+      value,
+      box: line,
+      anchorLine: found ? found.anchorLine : null,
+      anchorText: found ? normalize(found.anchorLine.text) : '',
+      relation: found ? found.relation : 'none',
       score:
-        anchor.weight +
-        hit.score * 0.3 +
+        semanticWeight +
+        spatialScore * 0.3 +
         (sumVerified ? ARITHMETIC_MATCH_BONUS : 0),
-      anchorWeight: anchor.weight,
-      confidence: hit.line.confidence,
+      anchorWeight: semanticWeight,
+      confidence: line.confidence,
       evidence
     });
   });
