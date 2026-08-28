@@ -152,5 +152,30 @@
     "due_date": "2016-01-08",
     "statement_date": null,
     "statement_date_note": "账单最上方的 DATE MAILED 那一行被拍照裁切掉了一半，OCR 只读出乱码，图里真的读不出来"
+  },
+  "Hospital_Bill": {
+    "note": "Allina Health 医院账单样本（JANE DOE 是占位符姓名），右上角方框 DATE DUE + 小字号表单排版，之前专门为这张图查过一次空间容差，最终是决定 09 等一系列改动累积修好的",
+    "category": "medical_provider",
+    "sender": "Allina Health",
+    "today": "2013-04-01",
+    "amount_shown": 419.07,
+    "payment_action": "pay",
+    "due_date": "2013-04-18",
+    "statement_date": "2013-03-28"
+  },
+  "Medical_Invoice": {
+    "note": "Zylker Healthcare 发票模板样本，Aaron Brown 是占位符姓名。整页只有 Total 一处带 $，分项/小计/税率全是裸数字——专门用来测决定 06 的 $ 门槛会不会被裸数字绕过",
+    "category": null,
+    "category_note": "词典里没有「医疗发票/INVOICE」这个类别，正确答案就是「未确定」，不是漏判",
+    "sender": null,
+    "sender_note": "机构名「Zylker Heathcare」是模板本身拼错的（少一个 l t），不强求识别出来",
+    "today": "2024-08-10",
+    "amount_shown": 14595,
+    "amount_shown_note": "唯一带 $ 的就是这个总额；Sub Total 13,900.00 和 Tax Rate 695 都是裸数字，不该被当成候选",
+    "payment_action": "pay",
+    "due_date": "2024-09-05",
+    "due_date_note": "Due Date: 05 Sep 2024，日在前月在中的国际写法",
+    "statement_date": "2024-08-05",
+    "statement_date_note": "Invoice Date: 05 Aug 2024，同样是日在前的写法"
   }
 }

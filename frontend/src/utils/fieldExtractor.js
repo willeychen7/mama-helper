@@ -63,8 +63,21 @@ const fixDigitConfusion = (token) =>
  * 真实的 State Farm 账单上 $165.00 被读成了 $165,00。
  * 「逗号后面只有两位」一定是小数点，因为千分位后面必然是三位。
  */
+/*
+ * $ 原来写的是 \$?（可选）——直接违反了决定 06「金额只认带 $ 的
+ * 写法」，只是这条正则自己没意识到。`parsePureMoney` 会另外算一个
+ * `hasDollarSign` 字段，但整个文件里只有一处（分项重复出现的佐证）
+ * 真的去检查这个字段，`moneyParser`/`parseCandidateValue` 拿到
+ * `parsePureMoney` 的结果后都是直接采信 `.value`，从不检查
+ * `hasDollarSign`——这条正则本身没有把关，全靠调用方自觉，而调用方
+ * 并不自觉。Zylker Healthcare 发票样本上「Sub Total 13,900.00」
+ * 没有 $，被当成金额候选，还赢过了真正带 $ 的「Total $14,595.00」。
+ * 改成 \$（必须出现），从根上堵死，不用逐个检查调用方有没有查
+ * hasDollarSign——这正是决定 06 说的"简单的规则本身就是一种安全
+ * 属性"。
+ */
 const PURE_MONEY_RE =
-  /^\(?\s*-?\s*\$?\s*(\d{1,3}(?:,\d{3})+|\d+)(?:[.,](\d{2}))\s*\)?\s*(CR|cr)?$/;
+  /^\(?\s*-?\s*\$\s*(\d{1,3}(?:,\d{3})+|\d+)(?:[.,](\d{2}))\s*\)?\s*(CR|cr)?$/;
 
 /*
  * 宽松模式：从一行文字里挑出所有像金额的片段。
@@ -235,6 +248,33 @@ export const findDatesInText = (text, options = {}) => {
       });
     }
     match = wordRe.exec(raw);
+  }
+
+  /*
+   * 2a) 05 Sep 2024 —— 日在前、月在中间的国际写法。
+   *
+   * 之前只认「Month Day, Year」（美式），Zylker Healthcare 发票样本
+   * 上「Due Date: 05 Sep 2024」是「Day Month Year」——不是哪个格式
+   * 更常见的问题，两种写法这个项目都会遇到，之前完全没覆盖后一种，
+   * 日期锚点就算命中，值也解析不出来。跟上面 word 格式一样，靠
+   * MONTH_NAMES 查表兜底，不是月份名的词不会被误采信。
+   */
+  const dayFirstRe =
+    /\b(\d{1,2})(?:st|nd|rd|th)?\.?\s*([A-Za-z]{3,9})\.?,?\s*(\d{4})\b/g;
+  match = dayFirstRe.exec(raw);
+  while (match) {
+    const day = Number(match[1]);
+    const month = MONTH_NAMES[match[2].toLowerCase()];
+    const year = Number(match[3]);
+    if (month && isValidYmd(year, month, day)) {
+      found.push({
+        iso: `${year}-${pad(month)}-${pad(day)}`,
+        index: match.index,
+        raw: match[0],
+        format: 'day-first'
+      });
+    }
+    match = dayFirstRe.exec(raw);
   }
 
   // 2b) 不带年份：December 10th / November 1st
@@ -2088,11 +2128,48 @@ export function extractLetterFields(lines, options = {}) {
     return moneyParser(line, true);
   };
 
+  /*
+   * 裸数字（不带 $）的候选，只在配上 >=92 分的锚点时才收——
+   * 跟 amountTrusted 里"锚点够强就不用再佐证"用的是同一个门槛，
+   * 不是新拍的数字。
+   *
+   * 这条口子是被两个互相矛盾的真实案例逼出来的：
+   *   - WM 垃圾账单：「Total Account」/「Balance Due」两行表头合并到
+   *     95 分，它紧挨着的值就是裸的 87.05——决定 06 定下来的时候，
+   *     这个案例其实一直在偷用 PURE_MONEY_RE 里 $ 可选的那个漏洞，
+   *     只是没人意识到。
+   *   - Zylker Healthcare 发票：「Sub Total」只有 74 分，紧挨着的
+   *     裸数字 13,900.00 如果也被收，会比真正带 $ 的
+   *     「Total $14,595.00」更早被选中——这才是决定 06 真正要防的
+   *     那种误判。
+   * 两个案例的裸数字长得一样，区别只在锚点强度，所以门槛就卡在
+   * 锚点强度上，不是"要不要 $"上。
+   */
+  const parseBareMoneyShape = (line) => {
+    const raw = normalize(line.text);
+    const m = raw.match(
+      /^\(?\s*-?\s*(\d{1,3}(?:,\d{3})+|\d+)(?:[.,](\d{2}))\s*\)?\s*(CR|cr)?$/
+    );
+    if (!m) return null;
+    const value = toNumber(m[1], m[2]);
+    if (value === null) return null;
+    const isCredit = /^\(/.test(raw) || /CR$/i.test(raw) || /^-|\s-/.test(raw);
+    return isCredit ? -value : value;
+  };
+
   safeLines.forEach((line) => {
-    const value = parseCandidateValue(line);
-    if (value === null || value === undefined) return;
+    let value = parseCandidateValue(line);
+    let requiresStrongAnchor = false;
+
+    if (value === null || value === undefined) {
+      const bare = parseBareMoneyShape(line);
+      if (bare === null || bare === undefined) return;
+      value = bare;
+      requiresStrongAnchor = true;
+    }
 
     const found = findAmountAnchorNear(line);
+    if (requiresStrongAnchor && (!found || found.anchor.weight < 92)) return;
     const semanticWeight = found ? found.anchor.weight : 0;
     const unit = Math.max(1, line.height || 20);
 

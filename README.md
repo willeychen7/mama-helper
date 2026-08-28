@@ -56,7 +56,7 @@ dictionary sizes behind it.
 
 | Suite | Result |
 |---|---|
-| **Real bills, hand-labeled ground truth** | 13 letters × 5 fields — category 12/13 92%   amount 13/13 100%   payment 13/13 100%   due date 13/13 100%   statement date 12/13 92% |
+| **Real bills, hand-labeled ground truth** | 15 letters × 5 fields — category 13/15 87%   amount 14/15 93%   payment 14/15 93%   due date 15/15 100%   statement date 14/15 93% |
 | `fieldExtractor.test.mjs` | 17 通过 / 0 失败 |
 | `fieldExtractor.real.test.mjs` | 真实措辞 6 通过 / 0 失败 |
 | `fieldExtractor.split.test.mjs` | 9 通过 / 0 失败 |
@@ -66,7 +66,7 @@ dictionary sizes behind it.
 | `fieldExtractor.photo.test.mjs` | 手机实拍 7 通过 / 0 失败 |
 | `fieldExtractor.slant.test.mjs` | 斜着拍的纸：框重叠也要抽得出来 |
 | `clues.test.mjs` | 线索层：零件组合 |
-| `speech.test.mjs` | 朗读 30 通过 / 0 失败 |
+| `speech.test.mjs` | 朗读 34 通过 / 0 失败 |
 | `amount.corroboration.test.mjs` | 金额佐证 4 通过 / 0 失败 |
 | `layoutText.test.mjs` | 版面还原 8 通过 / 0 失败 |
 | `contentRedactor.recall.test.mjs` | 脱敏召回 21/32 |
