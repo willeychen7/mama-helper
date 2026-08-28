@@ -104,8 +104,11 @@ const STATE_CODES = new Set(
  * 姓名判定。
  * 前三条是「明确信号」，出现在行内任何位置都算。
  * 第四条是「形状信号」，只在页面上方、且不含文档常用词时才启用。
+ *
+ * 导出给 App.jsx 的 detectLocalPII 用——姓名检测只应该有一处实现，
+ * 不能有两套各自维护的姓名判定逻辑同时存在。
  */
-const looksLikeName = (text, context = {}) => {
+export const looksLikeName = (text, context = {}) => {
   const raw = normalize(text);
   if (!raw || raw.length > 90) return null;
 

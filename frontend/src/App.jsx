@@ -23,7 +23,7 @@ import { enhanceDocumentImage } from './utils/imagePrep';
 
 import { extractLetterFields } from './utils/fieldExtractor';
 
-import { buildTranslatablePayload } from './utils/contentRedactor';
+import { buildTranslatablePayload, looksLikeName } from './utils/contentRedactor';
 
 import {
   buildSpeechText,
@@ -518,8 +518,60 @@ const resolveOverlaps = (
 // Local PII Detection
 // ============================================================
 
+/*
+ * 姓名检测——整行判定，不是逐词判定。
+ *
+ * 姓名判定逻辑只写在 contentRedactor.js 的 looksLikeName 里一份，
+ * 这里只做「把 OCR 行位置换算成 text 里的字符偏移」这件事，
+ * 不重新实现判断规则。之前这里（App.jsx 的 detectLocalPII）完全
+ * 不认识姓名，只有 contentRedactor.js 的 buildTranslatablePayload
+ * 认——于是「查看最终 OCR 文字」这个调试面板显示的是没有姓名保护的
+ * 半成品，用户拿它测试时会看到姓名裸奔，以为脱敏漏了。
+ *
+ * text 由 lines.map(l => l.text).join('\n') 拼成（runLocalOCR 里
+ * 就是这么拼的），所以按 lines 的顺序累加长度就能算出每一行在 text
+ * 里的起止偏移，不需要在 text 里再搜一遍——重复的行内容（比如
+ * 「JANE DOE」在页面上出现两次）搜字符串偏移会分不清是哪一次，
+ * 按行顺序累加就没有这个问题。
+ */
+const collectNameDetections = (text, lines) => {
+  if (!Array.isArray(lines) || !lines.length) return [];
+
+  const pageHeight = lines.reduce(
+    (max, l) => Math.max(max, l && l.bottom ? l.bottom : 0),
+    1
+  );
+
+  const found = [];
+  let cursor = 0;
+
+  lines.forEach((line) => {
+    const raw = line && line.text ? String(line.text) : '';
+    const start = text.indexOf(raw, cursor);
+    if (start === -1 || !raw) return;
+    const end = start + raw.length;
+    cursor = end;
+
+    const inUpperArea = line.top <= pageHeight * 0.45;
+    const why = looksLikeName(raw, { inUpperArea });
+    if (why) {
+      found.push({
+        type: 'PERSON_NAME',
+        value: raw,
+        start,
+        end,
+        placeholder: '[NAME]',
+        priority: 65
+      });
+    }
+  });
+
+  return found;
+};
+
 const detectLocalPII = (
-  text
+  text,
+  lines = []
 ) => {
   if (
     !text ||
@@ -534,6 +586,8 @@ const detectLocalPII = (
   const rawDetections =
     collectRawDetections(
       text
+    ).concat(
+      collectNameDetections(text, lines)
     );
 
   const detections =
@@ -3225,7 +3279,8 @@ export default function App() {
           redactedText
         } =
           detectLocalPII(
-            text
+            text,
+            lines
           );
 
         const detectionsWithWords =

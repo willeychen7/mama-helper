@@ -28,6 +28,48 @@
 
 ---
 
+## 2026-08-28 · ✅ 姓名检测合并成一份，`detectLocalPII` 现在也认识 [NAME]
+
+**被用户实测 Allina Health 医院账单炸出来的**——「查看最终 OCR 文字」
+调试面板里，地址、电话都变成了 `[ADDRESS]`/`[PHONE]`，但「JANE DOE」
+原样显示，用户以为脱敏漏了。
+
+**根因不是漏检，是这个项目里一直有两套互不相干的姓名判定**：
+
+1. `App.jsx` 的 `detectLocalPII`——16 类正则检测器，**压根不认识姓名**
+   （`contentRedactor.js` 开头注释早就写着这句），驱动的是「查看最终
+   OCR 文字」这个调试面板（`redactedOcrText`）。
+2. `contentRedactor.js` 的 `buildTranslatablePayload`——多了姓名/
+   收件人区块检测（`looksLikeName`），但它的输出**现在没有接到任何
+   UI 上**，只是算出来、没地方显示（`App.jsx` STEP 3.6 的注释原话）。
+
+用户测试时看到的是第 1 套（弱的那套），第 2 套（强的那套）一直存在
+但没人看得到——不是"脱敏漏了姓名"，是"漏了的那一套刚好是唯一
+显示出来的那一套"。
+
+**改法**：`looksLikeName` 从 `contentRedactor.js` 导出，`App.jsx`
+新增 `collectNameDetections(text, lines)`，按 `lines` 顺序累加字符
+偏移换算每一行在 `text`（`lines.map(l=>l.text).join('\n')` 拼出来的）
+里的起止位置——不用字符串搜索，因为「JANE DOE」这类内容在页面上
+可能重复出现，搜索会分不清是哪一次，按行顺序累加不会有这个问题。
+`detectLocalPII` 现在接收 `lines`，姓名整行替换成 `[NAME]`，和
+`[ADDRESS]`/`[PHONE]` 走同一套 pipeline、同一套判定逻辑
+（`looksLikeName` 只有一份实现，两处都调它，不是两份各自维护的代码）。
+
+**验证时发现一个新缺口，这次没有一起处理**：`looksLikeName` 的形状
+判定（第 4 条信号）要求「位于页面上方 45%」，这是为了不把
+「Generation Charges」这类账单术语误判成人名而卡死的门槛。Allina
+账单里第二处「JANE DOE」在「PATIENT NAME」那一行的表格里，位置在
+页面偏下方，这条限制会让它漏检——用同样的方法模拟验证过：第一处
+（ADDRESSEE 区块附近）能挡住，第二处（PATIENT NAME 表格行）挡不住。
+没有放宽这个门槛，因为松了会不会在别的信上误伤还没验证过，先如实
+记下来。
+
+`npm run build` 通过，六层回归全绿（`phone.test.mjs` 照旧是已知的
+环境限制）。
+
+---
+
 ## 2026-08-28 · ✅ 撤下 Secured_Property_Tax / Unsecured_Property_Tax 两张样本
 
 **先纠正一件事**：上一条记录里说 `Secured_Property_Tax` 的「显示不用交
