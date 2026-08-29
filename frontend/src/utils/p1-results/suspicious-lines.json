@@ -1,7 +1,7 @@
 {
   "mode": "REAL_DETECTOR_NO_OCR",
   "note": "这是 suspiciousGlue 检测逻辑在真实 demo 信 OCR 文本上的真实输出，不涉及任何 OCR 引擎调用（检测器本身不需要 OCR，只读取已有的 OCR 结果）。",
-  "generatedAt": "2026-08-29T21:46:54.816Z",
+  "generatedAt": "2026-08-29T22:39:23.943Z",
   "totalLines": 1226,
   "totalSuspicious": 64,
   "suspiciousRate": 0.052202283849918436,
