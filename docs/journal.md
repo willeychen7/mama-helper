@@ -28,6 +28,72 @@
 | 09 | 金额候选生成不再要求「先命中锚点」，改成「先收集所有带 $ 的值，再找证据」 | 现行 |
 | 10 | 实验性「AI 读全文」只发本地脱敏后的文字，不发图片；金额/日期展示仍只认本地抽取 | 现行 |
 | 11 | 下一阶段优先投入本地隐私检测 + 图片遮盖，暂停扩展 FieldExtractor 的账单业务理解 | 现行 |
+| 12 | 决定 11 细化成 P0–P4 五级优先级，CLAUDE.md 欠账清单同步改写 | 现行 |
+
+---
+
+## 2026-08-29 · ⚖️ 决定 12 · 决定 11 细化成 P0–P4，CLAUDE.md 欠账清单同步改写
+
+**背景**：决定 11 定了方向（隐私检测优先于账单业务理解），但只是方向，
+没排具体顺序。任务 3A/3B 做完之后，又做了一次纯诊断（不改代码）：确认
+`JENNIFERWASHINGTON`/`JOHNBDOE`/`iJANEDOE`/`JAMES&KARENQ.HINDS` 这四个
+反复出现的失败样本，粘连是发生在 PaddleOCR 自己的检测/识别阶段（每个都是
+单独一个 `id`、单独一个 bbox、单独一个 confidence，`id` 序列连续，查过
+`extractPaddleOCRStructure`/`buildSpatialReadingOrder` 的代码——这两步只
+排序、不合并文字），**不是本项目的行重建逻辑把两个框拼起来的**。这个结论
+排除了"改行重建代码就能解决"这个方向，把问题精确定位到了 OCR 检测/识别层
+本身。
+
+**决定**：接下来按这五级优先级做（细化决定 11，不新增方向）：
+
+```
+P0  本地隐私检测正确性
+    Ground truth 持续扩充 · 结构化 PII（SSN/电话/Email/账号/保单号/
+    Member ID）· 裸姓名/OCR 粘连姓名 · 地址/邮编 · 图片级遮盖验证
+    —— 目标：敏感信息不出本机
+
+P1  OCR 粘连导致的 PII 漏检
+    不先堆 NER —— 对"bbox 很宽 + 全大写 + 疑似姓名"这类可疑结果，
+    研究能不能在本地做局部二次 OCR / 重新切分
+
+P2  复杂版面下的隐私遮盖
+    不能只靠 block 当依据，lines + bbox 才是实际遮盖依据，block 只做
+    辅助上下文；专门测表格、图表、多栏、跨区域文字
+    （呼应任务 3A 里 water_bill 那两个 false positive 的根因）
+
+P3  红队测试
+    故意找：姓名没遮 · 地址没遮 · 数字型身份信息没遮 · OCR 粘连 ·
+    OCR 错读导致检测失效 · 遮盖过大 · 遮盖不足 · 图片已经遮住但
+    payload 文字里仍有原文
+
+P4  LLM 理解层
+    等 P0–P3 基本可靠之后，把"脱敏后的图片/文字 → LLM → 这是什么信、
+    谁寄的、要做什么"作为主要 AI 能力去投入
+```
+
+**FieldExtractor 的位置**：继续保留、继续跑 regression，但不再是主战场，
+不该为了确认 `$1,822.02` 到底是不是 `amount due` 这类判断继续堆几十条
+新 heuristic。
+
+**这条决定不推翻决定 01**：`FieldExtractor` 抽出来的金额/日期仍然是当前
+结构化结论的唯一来源，这次重新排优先级只是说"这不再是最该投入开发精力
+的地方"，不是"这个结果不可信了"。这句话专门写在这里，是为了不让人（或
+以后的 Claude）把"重新排优先级"和"推翻决定 01"搞混。
+
+*This reprioritization does not revoke Decision 01. Local amount/date
+extraction remains the source of truth for the current structured result;
+it is simply no longer the highest-priority development area.*
+
+**同步动作**：`CLAUDE.md` 的"下一步该做什么"那份旧清单（"先做 NER
+→ 多页信件 → 攒照片 → 中文信件 → 二次 OCR 存疑 → 让看不准说具体"）已经
+是三个决定以前的排序了，继续放着不动，以后谁（人或 Claude）照着它接着堆
+FieldExtractor/NER 规则，就会正好走上决定 11/12 想避开的那条路。已同步
+改写成上面的 P0–P4。
+
+**什么情况下该推翻**：如果 P0/P1 做到头（隐私检测召回率、图片遮盖准确率
+都已经压到能接受的水平），或者验证 P1 那条"本地二次 OCR/切分能解决粘连"
+的路走不通，需要回来重新评估要不要引入更重的模型（真正的 ONNX NER 或
+更换检测引擎）。
 
 ---
 
