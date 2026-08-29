@@ -1,7 +1,7 @@
 {
   "mode": "MOCK",
   "note": "这些记录全部来自手工构造的 mock OCR 引擎，只用来验证 runSecondPassOnLine/compareCandidates 的编排逻辑没有 bug——不代表真实 PaddleOCR 二次识别真的能拆开粘连词。真实结果见 P1-C，需要在本地浏览器用真实引擎跑，见 secondPassOcr.js 文件末尾的接入说明。",
-  "generatedAt": "2026-08-29T20:26:04.784Z",
+  "generatedAt": "2026-08-29T21:46:54.818Z",
   "scenarioCount": 4,
   "results": [
     {

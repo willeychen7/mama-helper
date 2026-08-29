@@ -407,25 +407,50 @@ const findAddresseeBlock = (lines, pageHeight, ctx) => {
      * 改成按内容判断：只有「看起来确实属于地址块」的行才继续扩，
      * 一碰到金额、栏目标题或机构名就停。
      */
-    const isBlockMember = (k) => {
+    /*
+     * OCR 行数组的下标相邻 ≠ 页面像素相邻——`water_bill` 这封带图表
+     * 的信上炸出来过：地址块往下扩的时候，下标紧跟在后面的下一行
+     * 其实是页面中部柱状图的月份坐标轴标签（"Feb"，跟地址所在的位置
+     * 在 Y 轴上差了三百多像素），单靠"这行长得像不像地址块成员"的
+     * 内容形状判断挡不住这种情况——之前只测过内容形状，从来没测过
+     * 候选行跟链条里上一行的物理距离。
+     *
+     * 加一条像素距离闸门：候选行跟链条当前边界行的垂直间距，不能
+     * 超过两者中较小行高的 2.5 倍——地址块内部相邻行之间通常就是
+     * 一个正常行距，超过这个量级基本可以确定是版面上不相关的另一块
+     * 内容，只是恰好在 OCR 行数组里排在了附近。
+     */
+    const verticalGapOk = (a, b) => {
+      const unit = Math.max(1, Math.min(a.height || 20, b.height || 20));
+      const gap =
+        a.top >= b.bottom ? a.top - b.bottom : b.top - a.bottom;
+      return gap <= unit * 2.5;
+    };
+
+    const isBlockMember = (k, edgeLine) => {
       const t = normalize(lines[k].text);
       if (!t || t.length > 50) return false;
       if (/\$\s*\d/.test(t)) return false;      // 带金额 -> 不是地址
       if (STRONG_ORG_HINTS.test(t)) return false; // 机构名 -> 不是收件人
       if (hasDocWord(t)) return false;           // 栏目名 -> 不是地址
+      if (!verticalGapOk(lines[k], edgeLine)) return false; // 像素距离太远 -> 不是同一块
       return true;
     };
 
     blocked.add(index);
 
+    let upperEdge = line;
     for (let k = index - 1; k >= Math.max(0, index - 3); k -= 1) {
-      if (!isBlockMember(k)) break;
+      if (!isBlockMember(k, upperEdge)) break;
       blocked.add(k);
+      upperEdge = lines[k];
     }
 
+    let lowerEdge = line;
     for (let k = index + 1; k <= Math.min(lines.length - 1, index + 3); k += 1) {
-      if (!isBlockMember(k)) break;
+      if (!isBlockMember(k, lowerEdge)) break;
       blocked.add(k);
+      lowerEdge = lines[k];
     }
   });
 
