@@ -97,6 +97,26 @@ const LABELS = {
     { text: 'JOHNBDOE', hipaa: 1, note: '收件人姓名（官方示例姓名，非真人），OCR 粘连' },
     { text: '24915APPLE CT', hipaa: 2, note: '收件人街道，OCR 粘连' },
     { text: 'MONTEREYPARKCA91754-2217', hipaa: 2, note: '收件人城市州邮编，OCR 粘连' }
+  ],
+  /*
+   * 决定 11 之后新扩的样本——之前只标注了 9 封信，
+   * 这两封是仓库里剩下的 demo 样本中，真的带着可辨认真人 PII（不是
+   * 官方示例姓名、不是已经泛化成 ANY CITY / VALUED CUSTOMER 的模板）的。
+   * 其余没扩的样本（SCE_Letter 是写给州监管机构的商务信；IRS_cp501 /
+   * IRS_CP504_Notice 原图上就是字面的 TAXPAYERNAME / ADDRESS 占位符；
+   * aaa-policy_renew 会员名那一栏是空的；ca-dmv-registration-fee 是纯
+   * 收费代码表；SCE_Sample_Bill 通篇是 VALUED CUSTOMER / ANY CITY 泛化
+   * 模板；wm_trash_bill 这页没有姓名地址）——这些信里没有可测的真实 PII，
+   * 不是漏标，是没有能标的东西。
+   */
+  Hospital_Bill: [
+    { text: 'JANEDOE', hipaa: 1, note: '收件人姓名，OCR 粘连（原文 "iJANEDOE" / "JANEDOE:"）' },
+    { text: '123ANYSTREET', hipaa: 2, note: '收件人街道，OCR 粘连（原文 ":123ANYSTREET"）' },
+    { text: 'MINNEAPOLISMN55480-9125', hipaa: 2, note: '收件人城市州邮编，OCR 粘连' },
+    { text: '0000000', hipaa: 11, note: '账号（页面上出现两次）' }
+  ],
+  Medical_Invoice: [
+    { text: 'Aaron Brown', hipaa: 1, note: '收件人姓名（"Bill To" 字段），「名 姓」格式 —— 正则抓不到' }
   ]
 };
 
@@ -160,7 +180,7 @@ console.log(`总计 ${caught}/${total}  ${pct}%   （${Object.keys(LABELS).lengt
  *
  * 每修好一个，就把门槛往上调一格。
  */
-const BASELINE = 21; // 2026-08-28 的实测值（9 封信）——Secured_Property_Tax 那张已撤下
+const BASELINE = 25; // 2026-08-29 的实测值（11 封信，新增 Hospital_Bill / Medical_Invoice）
 console.log(`\n门槛：至少挡住 ${BASELINE}/${total}（今天的水平，只许升不许降）`);
 
 const known = leaks.map((l) => `${l.letter} · ${l.text}（${l.note}）`);
