@@ -82,7 +82,16 @@ const LABELS = {
   IRS_cp503: [
     { text: 'JAMES&KARENQ.HINDS', hipaa: 1, note: '收件人姓名（官方示例姓名，非真人），OCR 粘连成一个词' },
     { text: '22BOULDERSTREET', hipaa: 2, note: '收件人街道，OCR 粘连' },
-    { text: 'HANSON,CT00000-7253', hipaa: 2, note: '收件人城市州邮编，OCR 粘连' }
+    { text: 'HANSON,CT00000-7253', hipaa: 2, note: '收件人城市州邮编，OCR 粘连' },
+    /*
+     * 这条不是靠肉眼标注找到的，是任务 3B 做 NER A/B 测试时，compromise
+     * 在其余 3 条已知漏检上全部交白卷，却顺手抓出了这条——付款联那一段
+     * 里同一个人名的第二次出现，跟第一次（JAMES&KARENQ.HINDS，全大写粘连）
+     * 长得完全不一样："James Q.Hinds"，中间名首字母跟姓氏粘连（"Q.Hinds"
+     * 中间没有空格）。现有正则要求中间名和姓氏之间有空格，这里没有，所以
+     * 一直没被挡住——这次之前的人工标注也漏标了，是被 NER 交叉核对带出来的。
+     */
+    { text: 'James Q.Hinds', hipaa: 1, note: '收件人姓名第二次出现（付款联），中间名首字母跟姓氏粘连（"Q.Hinds" 没空格）——被任务 3B 的 NER 交叉核对带出来，之前人工标注也漏标了' }
   ],
   DMV_Registration: [
     { text: 'GONZELES C', hipaa: 1, note: '收件人姓名（官方示例姓名，非真人），「姓 名首字母」格式' },
@@ -180,7 +189,7 @@ console.log(`总计 ${caught}/${total}  ${pct}%   （${Object.keys(LABELS).lengt
  *
  * 每修好一个，就把门槛往上调一格。
  */
-const BASELINE = 25; // 2026-08-29 的实测值（11 封信，新增 Hospital_Bill / Medical_Invoice）
+const BASELINE = 25; // 2026-08-29 的实测值（11 封信、38 条——任务 3B 的 NER 交叉核对又带出一条新漏标）
 console.log(`\n门槛：至少挡住 ${BASELINE}/${total}（今天的水平，只许升不许降）`);
 
 const known = leaks.map((l) => `${l.letter} · ${l.text}（${l.note}）`);
