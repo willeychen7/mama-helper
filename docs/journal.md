@@ -87,6 +87,61 @@
 
 ---
 
+## 2026-08-29 · ✅ 任务 3A：图片级遮盖 recall 审计（决定 11 的第二步）
+
+**目的**：上一条记录测的是"这段文字会不会出现在 `payloadText` 里"，这次要
+回答的是决定 11 排的下一个问题——**37 条 ground truth PII，最后有多少真的
+在图片上被涂黑了**，以及涂黑本身有没有连累不该挡的内容。
+
+**做法**：拿 9 封信（`SCE_Bill_Letter`/`hoag-invoice-mychart`/`statefarm_bill`/
+`water_bill`/`DMV_Registration`/`Medicare_Notice`/`SoCalGas`/`Hospital_Bill`/
+`Medical_Invoice`——demo_image 里能找到、且尺寸跟 OCR 坐标系对得上的全部
+样本；`att_bill` 尺寸不匹配、`IRS_cp503` 只有 PDF，这次没能生成真图，留在
+"没做的事"里），用 `buildTranslatablePayload` 算出来的 `withheld` 行 bbox
+（+4px padding）在真图上涂黑，肉眼逐张核对。
+
+**结果**：
+
+```
+PII Detection Recall     25/37 = 68%（跟文字层测试一致，遮盖粒度是整行，
+                                       两者目前完全等价）
+BBox Coverage（已检出的） 25/25 = 100%（没有发现"检出了但没盖全"的情况——
+                                       37 条 ground truth 没有一条跨两行
+                                       OCR，遮盖单位是整行，只要检出就是
+                                       整行涂黑，不存在"SMITH 只盖住一半"
+                                       这种半遮盖）
+Critical leakage          0（12 条漏检全部是"完全没挡"，不是"挡了一半"）
+False positive            2（详见下）
+```
+
+**两个 false positive，都不是"漏了没人发现"，是"挡多了、把有用信息也挡住了"**：
+
+1. **`water_bill`：`Payments Received` 被 `looksLikeName` 的形状规则误判成
+   人名**——两个首字母大写的词、在页面上方、`DOC_WORDS` 里没有 "payments"
+   （只收了单数 "payment"，复数形式漏了）也没有 "received"，于是这一整行
+   （包括同一行里的 `-$31.10` 付款额）被涂黑。这是"账单栏目名被当人名挡"
+   这个老问题（journal 里 `Generation Charges` 那次教训）的复发，根因很小：
+   `DOC_WORDS` 词表没做单复数归一化。
+2. **`water_bill`：图表的月份坐标轴标签（`Feb`/`Mar`/OCR 把 `Apr` 认成
+   `Aor`）被 `findAddresseeBlock` 的区块扩展逻辑扫了进去**，跟着一起涂黑。
+   根因：区块扩展是按 OCR 行数组的**下标**相邻（`index-1`/`index+1`）扩，
+   不是按**像素位置**相邻扩——OCR 出行的顺序不严格等于版面从上到下的顺序，
+   数组下标挨着的两行，可能一个是地址、另一个是页面完全不同区域（这里是
+   柱状图坐标轴）的文字。这个问题比第 1 个更结构性，牵一发动全身，风险
+   比加一个词到词表大得多，这次先如实记录，不在这次任务里改。
+
+**两个 bug 都出在同一封信（`water_bill`）上，不是巧合**——这封信版面比
+其他样本复杂（带图表），复杂版面正是这两类判定逻辑最容易露馅的地方。
+
+**没做的事**：`att_bill`（demo_image 里的文件跟 OCR 坐标系尺寸不一致）和
+`IRS_cp503`（demo_image 里只有 PDF，没转成图）这两封信这次没能生成真图
+做肉眼核对，只做了文字层面的机械检查（确认它们的 PII 都在单行 OCR 文本内，
+不存在跨行问题）。没有修上面两个 false positive——第 1 个是词表补漏，风险
+很低；第 2 个需要把区块扩展逻辑从"下标相邻"改成"像素位置相邻"，风险高，
+两个都先记录、留给下一步决定要不要现在修。
+
+---
+
 ## 2026-08-29 · ✅ 隐私召回测试扩到 11 封信（决定 11 的第一步）
 
 **背景**：决定 11 定了新优先级——先把 PII ground truth recall 测试做扎实，
