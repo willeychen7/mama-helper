@@ -459,7 +459,7 @@ HOA 按规约算，每家都不同，写一个数字出去就是编。不填的�
 
 ## 当前分数
 
-> 由 `scripts/update-docs.mjs` 于 2026-08-28 生成。**不要手改这一段。**
+> 由 `scripts/update-docs.mjs` 于 2026-08-29 生成。**不要手改这一段。**
 
 **真实账单（15 封）** — 类别 13/15 87%   金额 15/15 100%   付款方式 14/15 93%   到期日 15/15 100%   发信日期 14/15 93%
 
@@ -495,7 +495,7 @@ HOA 按规约算，每家都不同，写一个数字出去就是编。不填的�
 | 朗读安全 | `speech.test.mjs` | 朗读 34 通过 / 0 失败 |
 | 金额佐证 | `amount.corroboration.test.mjs` | 金额佐证 4 通过 / 0 失败 |
 | 版面还原 | `layoutText.test.mjs` | 版面还原 8 通过 / 0 失败 |
-| 脱敏召回 | `contentRedactor.recall.test.mjs` | 脱敏召回 21/32 |
+| 脱敏召回 | `contentRedactor.recall.test.mjs` | 脱敏召回 23/32 |
 | 知识库防线 | `knowledge.test.mjs` | 知识库 12 通过 / 0 失败 |
 
 ### 词典规模

@@ -115,8 +115,12 @@ export const looksLikeName = (text, context = {}) => {
   // --- 1. LASTNAME, FIRSTNAME（可以出现在行中间）---
   //     修正点：原来锚定整行，所以
   //     「BAKER, NATE / Page 5 of 5」这种真名反而漏掉。
+  //     逗号两边的空格改成 \s*（不强制要求）——
+  //     State Farm 账单 OCR 出来是「SMITH,BRENDA」，逗号紧贴两个词，
+  //     原来要求 \s+ 的写法在这种紧贴 OCR 输出上完全不命中，
+  //     这个真实姓名直接漏发了。
   const commaName = raw.match(
-    /\b([A-Z][A-Z'-]{1,})\s+,\s+([A-Z][A-Z'-]{1,})\b/
+    /\b([A-Z][A-Z'-]{1,})\s*,\s*([A-Z][A-Z'-]{1,})\b/
   );
   if (commaName && !STATE_CODES.has(commaName[2])) {
     return '姓名（姓, 名 格式）';
