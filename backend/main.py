@@ -858,6 +858,164 @@ async def understand_text(req: UnderstandTextRequest):
 
 
 # =========================================================
+# 实验性接口：打码图片 -> AI 理解全文
+#
+# 跟上面「脱敏文字」是同一个实验的另一种模式，二选一：
+# 这里收到的图片已经在用户自己的浏览器里，用跟 OCR 完全一致的坐标系
+# 把 buildTranslatablePayload 判定要挡的每一行涂黑了。这个接口本身
+# 不做任何脱敏，也看不到原始信件——涂黑之前的图片从没有离开过浏览器。
+# =========================================================
+
+UNDERSTAND_MASKED_IMAGE_PROMPT = """
+You are a warm, empathetic community assistant helping elderly Chinese-Americans
+understand English mail.
+
+The image is NOT the original letter as the user photographed it. It has already
+been redacted on the user's own device: black rectangles were painted over every
+line judged to contain personal information (name, address, account number,
+phone, email). You are only seeing what remains.
+
+Rules:
+- Never guess what a black rectangle might be covering. Treat it only as
+  "content was removed here", nothing more.
+- If the remaining content is too fragmented to understand, say so honestly
+  instead of inventing an explanation.
+- Output ONLY a valid JSON object, no markdown fences.
+
+Tasks, based only on what is visible in the image:
+1. document_type: "Bill | Government_Notice | Court_Legal | Medical | Marketing | Other | Unknown"
+2. amount: number or null (only if explicitly visible; a credit/refund balance
+   should be a negative number; if there is no amount owed, use null rather
+   than 0)
+3. due_date: "YYYY-MM-DD" or "Unknown"
+4. summary_cn: 用 1-2 句大白话总结这封信是干嘛的，适合完全不懂英文的老人看
+5. action_cn: 明确告诉老人第一步该做什么；不需要处理就直接说「暂时不需要做什么」
+6. risk_reason_cn: 如果不处理可能会怎样，1 句话
+7. confidence_note_cn: 如果因为内容被打码或本身不完整，导致你不确定，用 1 句话
+   老实说明哪里不确定；完全确定就填 null
+
+JSON Schema:
+{
+  "document_type": "string",
+  "amount": number or null,
+  "due_date": "string",
+  "summary_cn": "string",
+  "action_cn": "string",
+  "risk_reason_cn": "string",
+  "confidence_note_cn": "string or null"
+}
+"""
+
+
+@app.post("/api/experimental/understand-masked-image")
+async def understand_masked_image(file: UploadFile = File(...)):
+
+    groq_key = os.getenv("GROQ_API_KEY")
+
+    if not groq_key:
+        raise HTTPException(
+            status_code=500,
+            detail="未检测到 GROQ_API_KEY"
+        )
+
+    if file.content_type not in ALLOWED_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="暂时只支持 JPG、PNG 或 WEBP 图片"
+        )
+
+    try:
+        image_bytes = await file.read()
+
+        if len(image_bytes) > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail="图片太大，请上传 10MB 以内的图片"
+            )
+
+        if len(image_bytes) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="没有读取到图片内容"
+            )
+
+        image = Image.open(io.BytesIO(image_bytes))
+        image.verify()
+        image = Image.open(io.BytesIO(image_bytes))
+
+        # 打码图片来自浏览器 canvas 导出，不带 EXIF，也不需要再缩放——
+        # 前端已经用跟 OCR 一致的 maxDimension 处理过了。
+        if image.mode in ("RGBA", "P", "LA"):
+            image = image.convert("RGB")
+        elif image.mode != "RGB":
+            image = image.convert("RGB")
+
+        buffered = io.BytesIO()
+        image.save(buffered, format="JPEG", quality=90, optimize=True)
+        img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+        image_url = f"data:image/jpeg;base64,{img_base64}"
+
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail="图片读取失败，请确保上传的是正常的图片文件"
+        )
+    finally:
+        await file.close()
+        image_bytes = None
+
+    try:
+        client = Groq(api_key=groq_key)
+
+        completion = client.chat.completions.create(
+            model="qwen/qwen3.6-27b",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": UNDERSTAND_MASKED_IMAGE_PROMPT},
+                        {"type": "image_url", "image_url": {"url": image_url}}
+                    ]
+                }
+            ],
+            response_format={"type": "json_object"},
+            reasoning_effort="none",
+            temperature=0.1
+        )
+
+        text_response = clean_json_response(
+            completion.choices[0].message.content.strip()
+        )
+
+        result = json.loads(text_response)
+
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=502,
+            detail="AI 返回内容无法解析，请稍后再试"
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="实验性理解功能暂时失败，请稍后再试"
+        )
+    finally:
+        image_url = None
+        img_base64 = None
+
+    if isinstance(result, dict):
+        result = sanitize_ai_text_fields(result)
+
+    return {
+        "success": True,
+        "experimental": True,
+        "data": result
+    }
+
+
+# =========================================================
 # Version 2：老人追问
 # =========================================================
 

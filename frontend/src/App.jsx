@@ -1891,12 +1891,29 @@ export default function App() {
     setTranslatable
   ] = useState(null);
 
+  /*
+   * 预览用彩色图（只做了透视矫正/去斜，没有转灰度）。
+   * 跟喂给 OCR 的那张图几何坐标完全一致（processImagePrivacy 里的
+   * 注释也是这么写的），所以 OCR 行的 bbox 可以直接画在这张图上，
+   * 打码图片实验就是拿它当画布。
+   */
+  const [
+    preparedDisplayBlob,
+    setPreparedDisplayBlob
+  ] = useState(null);
+
   // ----------------------------------------------------------
-  // 实验性：脱敏文字 -> AI 理解全文
+  // 实验性：本地脱敏之后再发给 AI 读懂全文
   //
-  // 默认关闭。用户手动打开开关、再手动点确认发送，
+  // 两种模式，用户二选一：
+  //   'text'  —— 发 translatable.payloadText（挡下的行整行从文字里拿掉）
+  //   'image' —— 发一张本地画了黑框的图片（挡下的行在像素上被涂黑，
+  //               图片本身从没发出去过，只有涂黑之后的版本会发）
+  //
+  // 两种模式挡什么行用的是同一套判定（buildTranslatablePayload 算出来的
+  // translatable.withheld），区别只是「拿掉整行文字」还是「涂黑那行像素」。
+  // 默认关闭。用户手动打开开关、选模式、再手动点确认发送，
   // 每次发送都是当次的显式动作，不会自动或悄悄发出去。
-  // 只发 translatable.payloadText（已脱敏），不发图片、不发原始 OCR。
   // 这里拿到的 amount / due_date 只作为「AI 怎么理解」展示，
   // 绝不会覆盖上面 letterFields 里本地抽取出来的金额和日期。
   // ----------------------------------------------------------
@@ -1905,6 +1922,13 @@ export default function App() {
     setExperimentalEnabled
   ] = useState(
     () => localStorage.getItem('mama-helper-experimental-llm') === '1'
+  );
+
+  const [
+    experimentMode,
+    setExperimentMode
+  ] = useState(
+    () => localStorage.getItem('mama-helper-experimental-mode') || 'text'
   );
 
   const [
@@ -1922,6 +1946,11 @@ export default function App() {
     setExperimentError
   ] = useState(null);
 
+  const [
+    maskedPreviewUrl,
+    setMaskedPreviewUrl
+  ] = useState(null);
+
   const toggleExperimental = (checked) => {
     setExperimentalEnabled(checked);
     localStorage.setItem('mama-helper-experimental-llm', checked ? '1' : '0');
@@ -1931,7 +1960,58 @@ export default function App() {
     }
   };
 
+  const changeExperimentMode = (mode) => {
+    setExperimentMode(mode);
+    localStorage.setItem('mama-helper-experimental-mode', mode);
+    setExperimentResult(null);
+    setExperimentError(null);
+  };
+
+  /*
+   * 打码图片：在 preparedDisplayBlob（预览图，跟 OCR 坐标系完全一致）
+   * 上，把 translatable.withheld 里每一行的 bbox 涂黑，导出成新 Blob。
+   * 全程在本地 canvas 完成，涂黑之前的原图不会被这个函数发送到任何地方。
+   */
+  const buildMaskedImageBlob = async () => {
+    if (!preparedDisplayBlob) {
+      return null;
+    }
+
+    const bitmap = await createImageBitmap(preparedDisplayBlob);
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0);
+
+    const PAD = 4;
+    ctx.fillStyle = '#000000';
+
+    translatable.withheld.forEach((item) => {
+      const line = ocrLines[item.index];
+      if (!line) return;
+
+      const left = Math.max(0, (line.left ?? 0) - PAD);
+      const top = Math.max(0, (line.top ?? 0) - PAD);
+      const right = Math.min(canvas.width, (line.right ?? 0) + PAD);
+      const bottom = Math.min(canvas.height, (line.bottom ?? 0) + PAD);
+
+      if (right > left && bottom > top) {
+        ctx.fillRect(left, top, right - left, bottom - top);
+      }
+    });
+
+    return new Promise((resolve) => {
+      canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.9);
+    });
+  };
+
   const runExperimentalUnderstanding = async () => {
+    if (experimentMode === 'image') {
+      return runExperimentalMaskedImage();
+    }
+
     if (!translatable?.payloadText) return;
 
     setExperimentLoading(true);
@@ -1948,6 +2028,52 @@ export default function App() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text: translatable.payloadText })
+        }
+      );
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `请求失败（${res.status}）`);
+      }
+
+      const body = await res.json();
+      setExperimentResult(body.data);
+    } catch (err) {
+      setExperimentError(
+        err.message || '连不上后端，实验功能暂时用不了'
+      );
+    } finally {
+      setExperimentLoading(false);
+    }
+  };
+
+  const runExperimentalMaskedImage = async () => {
+    setExperimentLoading(true);
+    setExperimentError(null);
+    setExperimentResult(null);
+
+    try {
+      const maskedBlob = await buildMaskedImageBlob();
+      if (!maskedBlob) {
+        throw new Error('打码图片生成失败，请重新拍照再试');
+      }
+
+      if (maskedPreviewUrl) {
+        URL.revokeObjectURL(maskedPreviewUrl);
+      }
+      setMaskedPreviewUrl(URL.createObjectURL(maskedBlob));
+
+      const backendUrl =
+        import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+
+      const formData = new FormData();
+      formData.append('file', maskedBlob, 'masked_letter.jpg');
+
+      const res = await fetch(
+        `${backendUrl}/api/experimental/understand-masked-image`,
+        {
+          method: 'POST',
+          body: formData
         }
       );
 
@@ -3440,6 +3566,17 @@ export default function App() {
 
       setOcrBlocks([]);
 
+      setPreparedDisplayBlob(null);
+
+      if (maskedPreviewUrl) {
+        URL.revokeObjectURL(maskedPreviewUrl);
+        setMaskedPreviewUrl(null);
+      }
+
+      setExperimentResult(null);
+
+      setExperimentError(null);
+
       setOcrConfidence(
         null
       );
@@ -3482,6 +3619,7 @@ export default function App() {
 
         const {
           blob,
+          displayBlob,
           width:
             preparedWidth,
           height:
@@ -3490,6 +3628,10 @@ export default function App() {
           await processImagePrivacy(
             file
           );
+
+        setPreparedDisplayBlob(
+          displayBlob
+        );
 
         if (
           ocrCancelledRef.current
@@ -4643,25 +4785,72 @@ export default function App() {
                               }
                             />
                             <span className="text-base font-bold text-yellow-900">
-                              实验功能：打开后，可以把上面这段已脱敏的文字
-                              发给 AI，让它读懂全文大意（不发图片、不发原始
-                              OCR）。金额和到期日仍然只认本地识别的结果，
-                              这里 AI 给出的只作参考。
+                              实验功能：打开后，可以把本地已经挡掉个人信息的
+                              内容发给 AI，让它读懂全文大意。金额和到期日
+                              仍然只认本地识别的结果，这里 AI 给出的只作参考。
                             </span>
                           </label>
 
                           {experimentalEnabled && (
                             <>
+                              <div className="flex gap-4">
+                                <label className="flex items-center gap-2 text-sm font-bold text-yellow-900 cursor-pointer">
+                                  <input
+                                    type="radio"
+                                    name="experimentMode"
+                                    checked={experimentMode === 'text'}
+                                    onChange={() => changeExperimentMode('text')}
+                                  />
+                                  发脱敏后的文字（挡下的行整行拿掉）
+                                </label>
+                                <label className="flex items-center gap-2 text-sm font-bold text-yellow-900 cursor-pointer">
+                                  <input
+                                    type="radio"
+                                    name="experimentMode"
+                                    checked={experimentMode === 'image'}
+                                    onChange={() => changeExperimentMode('image')}
+                                    disabled={!preparedDisplayBlob}
+                                  />
+                                  发打码后的图片（挡下的行涂黑）
+                                </label>
+                              </div>
+
+                              {experimentMode === 'image' && !preparedDisplayBlob && (
+                                <p className="text-sm font-bold text-red-700">
+                                  这张照片还没有可用的预处理图片，暂时用不了打码模式。
+                                </p>
+                              )}
+
                               <button
                                 type="button"
                                 onClick={runExperimentalUnderstanding}
-                                disabled={experimentLoading}
+                                disabled={
+                                  experimentLoading ||
+                                  (experimentMode === 'image' && !preparedDisplayBlob)
+                                }
                                 className="w-full py-3 rounded-xl bg-yellow-500 hover:bg-yellow-600 disabled:opacity-50 text-white font-black text-lg"
                               >
                                 {experimentLoading
-                                  ? '正在发送脱敏文字给 AI……'
-                                  : `确认发送这 ${translatable.stats.sendableCount} 处脱敏后的文字给 AI`}
+                                  ? experimentMode === 'image'
+                                    ? '正在打码并发送图片给 AI……'
+                                    : '正在发送脱敏文字给 AI……'
+                                  : experimentMode === 'image'
+                                    ? `确认打码 ${translatable.withheld.length} 处后发图片给 AI`
+                                    : `确认发送这 ${translatable.stats.sendableCount} 处脱敏后的文字给 AI`}
                               </button>
+
+                              {experimentMode === 'image' && maskedPreviewUrl && (
+                                <details className="bg-white border-2 border-indigo-200 rounded-xl p-4">
+                                  <summary className="cursor-pointer text-base font-black text-indigo-900">
+                                    看看打码之后发出去的是这张图
+                                  </summary>
+                                  <img
+                                    src={maskedPreviewUrl}
+                                    alt="打码后的信件"
+                                    className="mt-3 w-full rounded-lg border border-indigo-200"
+                                  />
+                                </details>
+                              )}
 
                               {experimentError && (
                                 <p className="text-base font-bold text-red-700">
@@ -4737,7 +4926,9 @@ export default function App() {
                           </h2>
 
                           <p className="text-green-800 font-medium">
-                            当前照片和 OCR 文字都没有上传到 main.py
+                            原始照片和 OCR 文字都没有上传。只有在你自己打开
+                            上面的实验开关、并手动确认发送之后，脱敏后的文字
+                            或打码后的图片才会发给后端。
                           </p>
 
                         </div>
