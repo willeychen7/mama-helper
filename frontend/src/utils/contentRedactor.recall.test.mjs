@@ -39,8 +39,19 @@ const docs = {
 const LABELS = {
   SCE_Bill_Letter: [
     { text: 'BAKER, NATE', hipaa: 1, note: '收件人姓名，「姓, 名」格式' },
-    { text: '1234 FIRST AVE', hipaa: 2, note: '服务地址' },
-    { text: 'SIMI VALLEY', hipaa: 2, note: '城市' },
+    /*
+     * 原来这两条断言写的是带空格的 '1234 FIRST AVE' / 'SIMI VALLEY'，
+     * 但真实 OCR 输出是无空格粘连的 '1234FIRSTAVE' / 'SIMIVALLEY'——
+     * 带空格的写法在粘连文本里永远搜不到，等于测试自己一直在假装挡住了。
+     * 改成粘连形态后才发现这两行其实一直在泄露：
+     * 「Service address」紧挨着「CLEAN POWER ALLIANCE」「EDISON」这些
+     * STRONG_ORG_HINTS 命中的机构名，isOrgContactLine 把它当成了机构地址
+     * 放行——但它明明是老人自己的服务地址，不是机构地址。
+     * 地址正则本身也不认粘连形态（和刚修的姓名 bug 同一类根因）。
+     * 这两处先如实记成「已知漏」，正则/语境判断怎么修留到后续任务。
+     */
+    { text: '1234FIRSTAVE', hipaa: 2, note: '服务地址（老人自己的），紧挨机构名被当成机构地址放行，OCR 粘连' },
+    { text: 'SIMIVALLEY', hipaa: 2, note: '服务地址所在城市，同上，OCR 粘连' },
     { text: '8012345678', hipaa: 11, note: '服务账号' },
     { text: '123456789012345678', hipaa: 11, note: 'POD-ID' }
   ],
