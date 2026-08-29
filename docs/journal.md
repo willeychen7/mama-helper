@@ -32,6 +32,106 @@
 
 ---
 
+## 2026-08-29 · ✅ 新增 fixture-regen 工具：用当前真实引擎重建基线
+
+**背景**：上一条记录说的问题——`demo_ocr_pp.json` 可能跟不上当前引擎
+版本——不能靠猜，得靠重新跑一遍全部样本、拿真实数据说话。加一个独立
+浏览器工具，专门做这件事，不改任何现有算法代码。
+
+**新增两个文件**：
+
+```
+frontend/fixture-regen.html              独立页面
+frontend/src/fixtureRegen/main.js        页面逻辑
+frontend/src/fixtureRegen/readingOrder.js  从 App.jsx 原样搬来的行排序逻辑
+```
+
+**这个工具做什么**：用户在自己电脑上批量选中 `demo_image/` 里的图片
+（PDF 格式的两份 IRS 通知除外，需要先自己转成图片），对每一份都：
+
+1. 用跟主应用一致的 `enhanceDocumentImage` 预处理 + `ocr.predict()` 参数
+   跑一遍真实 OCR；
+2. 用**原样从 `App.jsx` 搬过来**（不是重写、不是简化版）的
+   `buildSpatialReadingOrder`（以及它依赖的 `detectLikelyColumns`/
+   `sortColumnLines`/`buildVisualRows`/`isSameTextRow`/
+   `getVerticalOverlapRatio`）算出跟真实用户看到的一致的行顺序——
+   之前 P1-C 页面为了简单跳过了这一步，这次为了 fixture 的保真度补上，
+   因为很多脱敏/抽取逻辑（比如收件人地址块往上下扩 3 行）是依赖行顺序的；
+3. 直接复用（不重新实现）`fieldExtractor.js` 的 `extractLetterFields`，
+   跟 `ground_truth.json` 比金额和到期日 recall；
+4. 直接复用 `suspiciousGlue.js` 算 suspicious rate；
+5. 检查决定 12 里那 3 个已知粘连字符串这次还在不在。
+
+结果实时显示在页面表格里（新旧行数对比、confidence、金额/日期对错、
+suspicious 统计、粘连字符串状态），也能导出一份完整 JSON。
+
+**为什么要把 `buildSpatialReadingOrder` 这一坨从 `App.jsx` 里搬出来**：
+它是纯函数，不依赖 React/JSX，逐字复制过来风险很低；但如果以后
+`App.jsx` 里这几个函数改了逻辑，这个工具文件不会跟着变——这是刻意
+接受的技术债，因为这终究是个一次性/低频跑的基线工具，不是要长期维护
+两份互相同步的核心链路代码。
+
+**没做的事**：没有自动把结果写回 `demo_ocr_pp.json`——工具只生成、
+下载，实际替换/拆分（`wm_trash_bill` 那条要单独放进
+`demo_ocr_photo.json`）留给拿到结果之后手动做，避免在没看过数据之前
+就自动覆盖仓库里的基线文件。也没有处理 `IRS_cp503`/`IRS_cp501`
+（只有 PDF）——这两份需要用户先自己转成图片。
+
+**验证**：`npm run build`（主应用）不受影响；`fixture-regen.html` 用
+Playwright 确认能加载、所有 import（`fieldExtractor.js`/
+`suspiciousGlue.js`/`ground_truth.json`/`demo_ocr_pp.json` 等）都解析
+成功、无 JS 报错——真实批量重跑本身要在用户电脑上跑才能验证。六层
+回归全绿（这次改动完全没碰 `utils/` 里任何被测试覆盖的文件）。
+
+---
+
+## 2026-08-29 · ⚖️ 决定 12 状态更新：P1 暂停开发，等重新 benchmark（不推翻，不永久取消）
+
+**背景**：用户在自己电脑上用真实 PP-OCRv6 通过 P1-C 页面实测了 3 个决定 12
+里点名的"已知反复出现的粘连案例"：
+
+```
+Medicare_Notice：JENNIFERWASHINGTON → JENNIFER WASHINGTON（99.9%）
+SoCalGas：      JOHNBDOE           → JOHN B DOE（99.93%）
+Hospital_Bill： iJANEDOE/JANEDOE:  → JANE DOE / JANE DOE（99.8%/96.1%，两处都测了）
+```
+
+**3/3，全部在真实引擎第一次识别时就是对的，不需要任何二次 OCR。**
+
+这说明支撑决定 12 排 P1 优先级的证据基础——`demo_ocr_pp.json` 这份
+fixture——已经跟不上当前实际在跑的 PaddleOCR 版本/配置了。继续在这份
+过时的 fixture 上开发"怎么修复粘连"，修的可能是一个已经不存在的问题。
+
+**这次的判断，按用户的要求写得比"P1 没用了"更严谨**：
+
+> 在当前验证过的 3 个 fixture 中，没有观察到需要局部二次 OCR 修复的
+> 真实粘连错误，因此目前没有足够证据证明 P1 值得作为高优先级投入。
+
+不是"证明了粘连问题不存在"（IRS_cp503 的 `JAMES&KARENQ.HINDS` 还没测，
+其它样本也还没跑全）——是"手上的证据不支持继续投入"，这是两件不同的事。
+
+**状态表**：
+
+| 项目 | 当前判断 |
+|---|---|
+| P1（局部二次 OCR 修复 glue） | 暂停开发，等重新 benchmark |
+| 原因 | 原有失败证据来自过时的 OCR fixture |
+| 当前真实证据 | 3/3 已测案例，真实引擎首次识别全部正确 |
+| 下一步 | 重生成全部 fixture + 补测 IRS_cp503 |
+| 是否永久删除 P1 相关代码 | 否——`suspiciousGlue.js`/`secondPassOcr.js` 保留 |
+| 是否继续投入开发 | 暂不投入，等 benchmark 结果 |
+
+**工程原则**（用户提出，记下来避免以后重蹈）：不要为了证明 P1 有价值
+而继续找 glue 样本，让真实 OCR 跑出来的数据决定，不要用旧 fixture 的
+失败案例反复验证同一个可能已经不存在的问题。
+
+**下一步（已经在做，见下一条记录）**：新增 `frontend/fixture-regen.html`
+独立工具，用当前真实引擎批量重跑全部 demo 样本，同时对比金额/日期
+recall（跟 `ground_truth.json`）、suspicious rate、已知粘连字符串这次
+还粘不粘——建一份新基线，而不是继续对着旧数据判断优先级。
+
+---
+
 ## 2026-08-29 · ✅ P1-C 浏览器测试入口（独立页面，不接主应用）
 
 **背景**：P1-A/P1-B 做完之后，"二次 OCR 到底能不能拆开粘连词"这个问题
