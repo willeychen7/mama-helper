@@ -151,7 +151,22 @@ $('fileInput').addEventListener('change', async (e) => {
     };
   }).filter((l) => l.text);
 
-  firstPassSummaryEl.innerHTML = `<p>第一次 OCR 识别到 <b>${currentLines.length}</b> 行。</p>`;
+  firstPassSummaryEl.innerHTML = `
+    <p>第一次 OCR 识别到 <b>${currentLines.length}</b> 行。</p>
+    <details>
+      <summary>查看全部 ${currentLines.length} 行原始识别结果（调试用，判断 suspicious=0 是因为这次真没粘连，还是判定逻辑有问题）</summary>
+      <table>
+        <thead><tr><th>#</th><th>text</th><th>confidence</th></tr></thead>
+        <tbody>
+          ${currentLines.map((l) => `<tr><td>${l.index}</td><td>${escapeHtml(l.text)}</td><td>${l.confidence != null ? l.confidence.toFixed(1) : '-'}</td></tr>`).join('')}
+        </tbody>
+      </table>
+    </details>
+  `;
+
+  // 也挂到 window 上，方便直接在 DevTools 控制台里查（比如
+  // window.__p1.currentLines.filter(l => l.text.includes('WASHINGTON'))）。
+  window.__p1 = { currentLines, engineInfo };
 
   renderSuspiciousList();
 });
