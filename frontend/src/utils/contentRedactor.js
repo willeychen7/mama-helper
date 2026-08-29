@@ -71,7 +71,7 @@ const DOC_WORDS = new Set(
    enrollment explanation fee fees gas generation group history hospital
    important insurance interest invoice level line medical member message
    messages meter monthly network new notice number office page paid patient
-   payment period plan policy power premium previous price provider quarterly
+   payment payments received period plan policy power premium previous price provider quarterly
    rate rates reading records reference refuse renewal residential保
    sample savings schedule section service services statement status subtotal
    report director deputy assessment attachment exhibit appendix figure table
