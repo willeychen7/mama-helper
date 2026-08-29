@@ -32,6 +32,58 @@
 
 ---
 
+## 2026-08-29 · ✅ P1-C 浏览器测试入口（独立页面，不接主应用）
+
+**背景**：P1-A/P1-B 做完之后，"二次 OCR 到底能不能拆开粘连词"这个问题
+还是没有答案——沙箱环境连不上 PaddleOCR 需要的模型域名。这次加一个能
+在本地浏览器（能连外网）里跑真实引擎的入口，专门回答这一个问题，不
+接主应用、不改 `App.jsx`。
+
+**新增两个文件**：
+
+```
+frontend/p1-experiment.html          独立页面（跟 index.html 平级）
+frontend/src/p1experiment/main.js    页面逻辑
+```
+
+Vite 开发服务器（`npm run dev`）本来就会给项目根目录下任何 `.html`
+文件分配路由，不需要改 `vite.config.js`——起了 dev server 之后访问
+`http://127.0.0.1:5173/p1-experiment.html` 就能打开，跟主应用
+`http://127.0.0.1:5173/` 完全独立，没有共享状态。
+
+**这个页面做什么**：
+1. 初始化真实 PaddleOCR 引擎——用跟 `App.jsx` 的 `getOCREngine` 完全
+   一样的配置尝试顺序（v6 worker → v6 主线程 → v5 worker → v5 主线程），
+   但代码是独立重写的一份，没有 import `App.jsx`（那是个 React 组件，
+   不适合被一个独立页面拿来当库用）。
+2. 上传照片后，用跟 `App.jsx` 完全一致的预处理（`enhanceDocumentImage`）
+   和 `predict()` 参数跑第一次整页 OCR，保证这里的"第一次 OCR 结果"
+   跟真实用户在主应用里看到的一致，不是另一套配置跑出来的另一份数据。
+3. 直接复用已经写好、已经在 Node 里测过编排逻辑没 bug 的
+   `suspiciousGlue.js`/`secondPassOcr.js`——真正新写的只有"怎么把
+   `ocr.predict()` 的真实返回值接进 `runSecondPassOnLine` 期待的
+   `{items:[...]}` 形状"这一层适配代码。
+4. 每一步都记录真实耗时（引擎初始化耗时、每次 OCR 调用耗时）显示在
+   页面上——mock 不会有这种下模型/编译 WASM/真实推理的延迟，耗时本身
+   就是"这是真引擎"的证据；也提示了可以在开发者工具 Network 面板里
+   确认真的有到 `paddle-model-ecology.bj.bcebos.com` 的请求。
+5. 结果导出成 JSON（浏览器本地下载，不经过任何服务器），顶层标
+   `mode: "REAL"`，跟已有的 `.mock.json` 区分开。
+
+**验证过的部分**：`npm run dev` 后访问 `/p1-experiment.html` 返回
+200，用 Playwright 打开确认页面能正常渲染、`main.js` 的 import（跨
+文件引用 `suspiciousGlue.js`/`secondPassOcr.js`/`imagePrep.js`）全部
+解析成功、没有 JS 报错——**但受限于这个沙箱连不上模型域名，没有点过
+"初始化引擎"按钮，没有验证真实 OCR 调用链路本身跑不跑得通**，这一步
+必须用户在自己电脑上点了才知道。
+
+**没做的事**：没有把这个页面接入 `npm run build`（生产构建），它只是
+开发阶段的实验工具，不该出现在最终产物里；也没有做任何自动化测试
+（这类页面依赖真实浏览器 + 真实网络，没法在这个项目的 `*.test.mjs`
+体系里覆盖）。
+
+---
+
 ## 2026-08-29 · ✅ P1-A/P1-B：可疑粘连检测器 + 二次 OCR 编排逻辑（独立实验模块）
 
 **背景**：决定 12 的 P1 排的是"对可疑粘连结果做局部二次 OCR"。这次先做

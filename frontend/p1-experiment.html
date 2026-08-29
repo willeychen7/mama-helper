@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>P1-C · 二次 OCR 真实性验证（不是主应用）</title>
+    <style>
+      body { font-family: -apple-system, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 16px; line-height: 1.5; }
+      h1 { font-size: 20px; }
+      .warn { background: #fff3cd; border: 1px solid #ffc107; padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; }
+      section { border: 1px solid #ddd; border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; }
+      #engineLog, #timingLog { font-family: monospace; font-size: 12px; white-space: pre-wrap; background: #f5f5f5; padding: 8px; border-radius: 6px; max-height: 200px; overflow: auto; }
+      table { border-collapse: collapse; width: 100%; font-size: 13px; }
+      td, th { border: 1px solid #ddd; padding: 4px 6px; text-align: left; vertical-align: top; }
+      button { padding: 6px 12px; cursor: pointer; }
+      .suspicious-row { background: #fff8e1; }
+      #cropPreview { max-width: 300px; border: 1px solid #ccc; margin-top: 6px; }
+    </style>
+  </head>
+  <body>
+    <h1>P1-C · 二次 OCR 能不能拆开粘连词（真实 PaddleOCR，不是 mock）</h1>
+    <div class="warn">
+      这是一个独立的实验页面，跟 Mama Helper 主应用（<code>/</code>）完全分开，不共享任何状态、不影响主链路。
+      图片只在这个页面的浏览器内存里处理，不会上传到任何地方。
+    </div>
+
+    <section>
+      <h3>1 · 初始化 PaddleOCR 引擎</h3>
+      <button id="btnInitEngine">初始化引擎（会真的联网拉模型，第一次可能要几秒到几十秒）</button>
+      <div id="engineLog">（还没初始化）</div>
+    </section>
+
+    <section>
+      <h3>2 · 上传照片，跑第一次 OCR</h3>
+      <input type="file" id="fileInput" accept="image/*" disabled />
+      <div id="timingLog"></div>
+      <div id="firstPassSummary"></div>
+    </section>
+
+    <section>
+      <h3>3 · 可疑粘连行 + 二次 OCR</h3>
+      <div id="suspiciousList">（还没跑第一次 OCR）</div>
+    </section>
+
+    <section>
+      <h3>4 · 导出结果</h3>
+      <button id="btnDownload" disabled>下载完整结果 JSON</button>
+      <p style="font-size:12px;color:#666">
+        下载后把文件发回来，或者复制进 <code>frontend/src/utils/p1-results/</code> 目录里
+        （文件名建议加上 <code>.real.json</code> 后缀，跟已有的 <code>.mock.json</code> 区分开）。
+      </p>
+    </section>
+
+    <script type="module" src="/src/p1experiment/main.js"></script>
+  </body>
+</html>
