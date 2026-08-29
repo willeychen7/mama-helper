@@ -1,0 +1,23 @@
+{
+  "generatedAt": "2026-08-29T18:16:56.562Z",
+  "p1a_suspiciousGlueDetector": {
+    "mode": "REAL_DETECTOR_NO_OCR",
+    "totalLines": 1226,
+    "totalSuspicious": 64,
+    "suspiciousRate": 0.052202283849918436,
+    "knownGlueCaseRecall": "5/5",
+    "interpretation": "这是 P1-A 的真实结果：检测规则本身跑在真实 OCR 文本上，不涉及重跑 OCR。suspicious rate 是成本指标（多少行会被送去二次 OCR），不是准确率指标。"
+  },
+  "p1b_pipelineLogicTest": {
+    "mode": "MOCK",
+    "scenarioCount": 4,
+    "passed": 26,
+    "failed": 0,
+    "interpretation": "验证的是编排代码（裁切/放大/预处理调用顺序、比较逻辑、不覆盖原始结果）没有 bug，用的是手工编好的假 OCR 输出，不是真实 PaddleOCR 的能力测试。"
+  },
+  "p1c_realityTest": {
+    "mode": "NOT_RUN",
+    "reason": "这个沙箱环境的出站网络策略挡住了 PaddleOCR-js（以及作为替代尝试过的 tesseract.js）需要下载的模型文件所在域名，无法在这里初始化任何 OCR 引擎。真正回答\"二次 OCR 能不能把粘连词拆开\"，需要在能连外网的本地浏览器里，用 secondPassOcr.js 文件末尾说明的方式接入真实 getOCREngine()，对着 4-5 个已知案例（JENNIFERWASHINGTON / JOHNBDOE / iJANEDOE / JAMES&KARENQ.HINDS）实际跑一遍，并且要跟 ground_truth 比较（是不是真的读对了，不是\"看起来更合理\"）。",
+    "howToRun": "frontend/src/utils/secondPassOcr.js 文件末尾\"如何在浏览器里接真实引擎\"注释"
+  }
+}

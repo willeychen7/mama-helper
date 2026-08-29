@@ -1,0 +1,381 @@
+{
+  "mode": "MOCK",
+  "note": "这些记录全部来自手工构造的 mock OCR 引擎，只用来验证 runSecondPassOnLine/compareCandidates 的编排逻辑没有 bug——不代表真实 PaddleOCR 二次识别真的能拆开粘连词。真实结果见 P1-C，需要在本地浏览器用真实引擎跑，见 secondPassOcr.js 文件末尾的接入说明。",
+  "generatedAt": "2026-08-29T18:16:56.562Z",
+  "scenarioCount": 4,
+  "results": [
+    {
+      "document": "Medicare_Notice(mock)",
+      "lineIndex": 4,
+      "original": {
+        "text": "JENNIFERWASHINGTON",
+        "confidence": 99.94,
+        "bbox": {
+          "left": 102,
+          "top": 194,
+          "right": 296,
+          "bottom": 211
+        }
+      },
+      "trigger": {
+        "suspicious": true,
+        "score": 50,
+        "reasons": [
+          "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+          "位于页面上方（弱信号）"
+        ]
+      },
+      "retries": [
+        {
+          "variantId": "A_original_crop",
+          "engineMode": "MOCK",
+          "text": "JENNIFERWASHINGTON",
+          "confidence": 99,
+          "comparison": {
+            "original_text": "JENNIFERWASHINGTON",
+            "candidate_text": "JENNIFERWASHINGTON",
+            "original_confidence": 99.94,
+            "candidate_confidence": 99,
+            "changed": false,
+            "change_type": "no_change",
+            "reasons": [
+              "候选结果 confidence 比原始识别更低"
+            ]
+          }
+        },
+        {
+          "variantId": "B_upscale2x",
+          "engineMode": "MOCK",
+          "text": "JENNIFERWASHINGTON",
+          "confidence": 98,
+          "comparison": {
+            "original_text": "JENNIFERWASHINGTON",
+            "candidate_text": "JENNIFERWASHINGTON",
+            "original_confidence": 99.94,
+            "candidate_confidence": 98,
+            "changed": false,
+            "change_type": "no_change",
+            "reasons": [
+              "候选结果 confidence 比原始识别更低"
+            ]
+          }
+        },
+        {
+          "variantId": "C_upscale3x_gray",
+          "engineMode": "MOCK",
+          "text": "JENNIFER WASHINGTON",
+          "confidence": 88,
+          "comparison": {
+            "original_text": "JENNIFERWASHINGTON",
+            "candidate_text": "JENNIFER WASHINGTON",
+            "original_confidence": 99.94,
+            "candidate_confidence": 88,
+            "changed": true,
+            "change_type": "added_space",
+            "reasons": [
+              "去掉空白后字符序列一致，差异只在空白处",
+              "候选结果 confidence 比原始识别更低"
+            ]
+          }
+        },
+        {
+          "variantId": "D_upscale3x_contrast",
+          "engineMode": "MOCK",
+          "text": "JENNIFER WASHINGTON",
+          "confidence": 91,
+          "comparison": {
+            "original_text": "JENNIFERWASHINGTON",
+            "candidate_text": "JENNIFER WASHINGTON",
+            "original_confidence": 99.94,
+            "candidate_confidence": 91,
+            "changed": true,
+            "change_type": "added_space",
+            "reasons": [
+              "去掉空白后字符序列一致，差异只在空白处",
+              "候选结果 confidence 比原始识别更低"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "document": "SoCalGas(mock)",
+      "lineIndex": 4,
+      "original": {
+        "text": "JOHNBDOE",
+        "confidence": 99.93,
+        "bbox": {
+          "left": 438,
+          "top": 45,
+          "right": 574,
+          "bottom": 68
+        }
+      },
+      "trigger": {
+        "suspicious": true,
+        "score": 50,
+        "reasons": [
+          "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+          "位于页面上方（弱信号）"
+        ]
+      },
+      "retries": [
+        {
+          "variantId": "A_original_crop",
+          "engineMode": "MOCK",
+          "text": "JOHNBDOE",
+          "confidence": 99,
+          "comparison": {
+            "original_text": "JOHNBDOE",
+            "candidate_text": "JOHNBDOE",
+            "original_confidence": 99.93,
+            "candidate_confidence": 99,
+            "changed": false,
+            "change_type": "no_change",
+            "reasons": [
+              "候选结果 confidence 比原始识别更低"
+            ]
+          }
+        },
+        {
+          "variantId": "B_upscale2x",
+          "engineMode": "MOCK",
+          "text": "JOHNBDOE",
+          "confidence": 97,
+          "comparison": {
+            "original_text": "JOHNBDOE",
+            "candidate_text": "JOHNBDOE",
+            "original_confidence": 99.93,
+            "candidate_confidence": 97,
+            "changed": false,
+            "change_type": "no_change",
+            "reasons": [
+              "候选结果 confidence 比原始识别更低"
+            ]
+          }
+        },
+        {
+          "variantId": "C_upscale3x_gray",
+          "engineMode": "MOCK",
+          "text": "JOHNBDOE",
+          "confidence": 95,
+          "comparison": {
+            "original_text": "JOHNBDOE",
+            "candidate_text": "JOHNBDOE",
+            "original_confidence": 99.93,
+            "candidate_confidence": 95,
+            "changed": false,
+            "change_type": "no_change",
+            "reasons": [
+              "候选结果 confidence 比原始识别更低"
+            ]
+          }
+        },
+        {
+          "variantId": "D_upscale3x_contrast",
+          "engineMode": "MOCK",
+          "text": "JOHNBDOE",
+          "confidence": 96,
+          "comparison": {
+            "original_text": "JOHNBDOE",
+            "candidate_text": "JOHNBDOE",
+            "original_confidence": 99.93,
+            "candidate_confidence": 96,
+            "changed": false,
+            "change_type": "no_change",
+            "reasons": [
+              "候选结果 confidence 比原始识别更低"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "document": "IRS_cp503(mock)",
+      "lineIndex": 17,
+      "original": {
+        "text": "JAMES&KARENQ.HINDS",
+        "confidence": 99.19,
+        "bbox": {
+          "left": 238,
+          "top": 395,
+          "right": 592,
+          "bottom": 424
+        }
+      },
+      "trigger": {
+        "suspicious": true,
+        "score": 75,
+        "reasons": [
+          "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+          "形如「A&B」的联名粘连",
+          "位于页面上方（弱信号）"
+        ]
+      },
+      "retries": [
+        {
+          "variantId": "A_original_crop",
+          "engineMode": "MOCK",
+          "text": "JAMES&KARENQ.HINDS",
+          "confidence": 99,
+          "comparison": {
+            "original_text": "JAMES&KARENQ.HINDS",
+            "candidate_text": "JAMES&KARENQ.HINDS",
+            "original_confidence": 99.19,
+            "candidate_confidence": 99,
+            "changed": false,
+            "change_type": "no_change",
+            "reasons": [
+              "候选结果 confidence 比原始识别更低"
+            ]
+          }
+        },
+        {
+          "variantId": "B_upscale2x",
+          "engineMode": "MOCK",
+          "text": "JAMES & KAREN Q. HINDS",
+          "confidence": 62,
+          "comparison": {
+            "original_text": "JAMES&KARENQ.HINDS",
+            "candidate_text": "JAMES & KAREN Q. HINDS",
+            "original_confidence": 99.19,
+            "candidate_confidence": 62,
+            "changed": true,
+            "change_type": "added_space",
+            "reasons": [
+              "去掉空白后字符序列一致，差异只在空白处",
+              "候选结果 confidence 比原始识别更低"
+            ]
+          }
+        },
+        {
+          "variantId": "C_upscale3x_gray",
+          "engineMode": "MOCK",
+          "text": "JAMES&KARENQ.HINDS",
+          "confidence": 90,
+          "comparison": {
+            "original_text": "JAMES&KARENQ.HINDS",
+            "candidate_text": "JAMES&KARENQ.HINDS",
+            "original_confidence": 99.19,
+            "candidate_confidence": 90,
+            "changed": false,
+            "change_type": "no_change",
+            "reasons": [
+              "候选结果 confidence 比原始识别更低"
+            ]
+          }
+        },
+        {
+          "variantId": "D_upscale3x_contrast",
+          "engineMode": "MOCK",
+          "text": "JAMES&KARENQ.HINDS",
+          "confidence": 88,
+          "comparison": {
+            "original_text": "JAMES&KARENQ.HINDS",
+            "candidate_text": "JAMES&KARENQ.HINDS",
+            "original_confidence": 99.19,
+            "candidate_confidence": 88,
+            "changed": false,
+            "change_type": "no_change",
+            "reasons": [
+              "候选结果 confidence 比原始识别更低"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "document": "SoCalGas(mock-misread)",
+      "lineIndex": 4,
+      "original": {
+        "text": "JOHNBDOE",
+        "confidence": 99.93,
+        "bbox": {
+          "left": 438,
+          "top": 45,
+          "right": 574,
+          "bottom": 68
+        }
+      },
+      "trigger": {
+        "suspicious": true,
+        "score": 50,
+        "reasons": [
+          "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+          "位于页面上方（弱信号）"
+        ]
+      },
+      "retries": [
+        {
+          "variantId": "A_original_crop",
+          "engineMode": "MOCK",
+          "text": "JOHNBDOE",
+          "confidence": 99,
+          "comparison": {
+            "original_text": "JOHNBDOE",
+            "candidate_text": "JOHNBDOE",
+            "original_confidence": 99.93,
+            "candidate_confidence": 99,
+            "changed": false,
+            "change_type": "no_change",
+            "reasons": [
+              "候选结果 confidence 比原始识别更低"
+            ]
+          }
+        },
+        {
+          "variantId": "B_upscale2x",
+          "engineMode": "MOCK",
+          "text": "JOHNBDOE",
+          "confidence": 97,
+          "comparison": {
+            "original_text": "JOHNBDOE",
+            "candidate_text": "JOHNBDOE",
+            "original_confidence": 99.93,
+            "candidate_confidence": 97,
+            "changed": false,
+            "change_type": "no_change",
+            "reasons": [
+              "候选结果 confidence 比原始识别更低"
+            ]
+          }
+        },
+        {
+          "variantId": "C_upscale3x_gray",
+          "engineMode": "MOCK",
+          "text": "JOHNB0OE",
+          "confidence": 80,
+          "comparison": {
+            "original_text": "JOHNBDOE",
+            "candidate_text": "JOHNB0OE",
+            "original_confidence": 99.93,
+            "candidate_confidence": 80,
+            "changed": true,
+            "change_type": "different_chars",
+            "reasons": [
+              "字符数量相同但内容不同，可能是误读，不是简单的重新分词",
+              "候选结果 confidence 比原始识别更低"
+            ]
+          }
+        },
+        {
+          "variantId": "D_upscale3x_contrast",
+          "engineMode": "MOCK",
+          "text": "JOHNBDOE",
+          "confidence": 96,
+          "comparison": {
+            "original_text": "JOHNBDOE",
+            "candidate_text": "JOHNBDOE",
+            "original_confidence": 99.93,
+            "candidate_confidence": 96,
+            "changed": false,
+            "change_type": "no_change",
+            "reasons": [
+              "候选结果 confidence 比原始识别更低"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

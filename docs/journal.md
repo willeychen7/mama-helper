@@ -32,6 +32,80 @@
 
 ---
 
+## 2026-08-29 · ✅ P1-A/P1-B：可疑粘连检测器 + 二次 OCR 编排逻辑（独立实验模块）
+
+**背景**：决定 12 的 P1 排的是"对可疑粘连结果做局部二次 OCR"。这次先做
+一个很小、可验证的实验，不碰主链路，也不改 PaddleOCR 参数——新增三个
+独立文件（`suspiciousGlue.js`/`secondPassOcr.js`/
+`secondPassOcr.experiment.test.mjs`），`App.jsx`/`imagePrep.js`/
+`contentRedactor.js`/`fieldExtractor.js` 一行没动。
+
+**这次能在沙箱里跑出真实数据的部分（P1-A）**：`suspiciousGlue.js` 是纯
+逻辑判定——不判断"是不是姓名"（那是 `contentRedactor.js` 的事），只判断
+"这一行长得像被粘连了、值不值得花一次算力重跑"。在全部 18 封 demo 信
+（1226 行）上跑了一遍：
+
+```
+total lines: 1226
+suspicious lines: 64
+suspicious rate: 5.2%
+known glue case recall: 5/5（JENNIFERWASHINGTON / JOHNBDOE /
+                              iJANEDOE / JANEDOE: / JAMES&KARENQ.HINDS）
+```
+
+`suspicious rate` 是成本指标，不是准确率指标——衡量的是"这套规则会让
+多少行排队去做二次 OCR"，5.2% 现在看不算离谱，具体划不划算留给以后
+真跑起来后再判断。bbox 宽度相对字符数偏宽这条按用户要求压成了弱信号
+（+10 分，阈值 50 分），不会单独决定 suspicious。
+
+**这次只能验证代码逻辑、不能验证真实能力的部分（P1-B）**：
+`secondPassOcr.js` 分两层——像素层（裁切/放大/灰度/对比度，需要浏览器
+Canvas API，沙箱里跑不了）和编排层（引擎、裁切函数都是注入依赖，可以
+用 mock 在 Node 里测）。`compareCandidates` 按用户要求不选 winner，只
+产出结构化对比记录（`original_text`/`candidate_text`/两边 confidence/
+`changed`/`change_type`/`reasons`），原始识别结果永远不会被覆盖。用 4
+个手工构造的场景（成功拆开 / 完全没用 / retry 加了空格但 confidence
+反而更低 / retry 把字符读错）验证了这套编排代码本身没有 bug——**这不
+代表真实 PaddleOCR 的二次识别能力，只代表这套代码逻辑是对的**。
+
+**测试自己的过程中抓到两个真 bug**（写代码时就发现了，不是等本地跑
+才发现）：
+
+1. `runSecondPassOnLine` 里，`engine.predict()` 返回的 `score` 是
+   PaddleOCR-js 原始的 0–1 区间，直接拿去跟 `line.confidence`（已经
+   乘过 100 的 0–100 区间，比如 fixture 里的 `99.94`）比较，会把
+   "本来差不多"误判成"candidate confidence 掉了 99 个点"——所有 retry
+   都会被污染成"看起来更差"。修法是换算成同一个区间，再补一条回归
+   断言防止再退化。
+2. 测试脚本里手工构造 mock 场景时，直接调 `detectSuspiciousGlue(line)`
+   没传 `context`（`pageHeight`/`charWidthBaseline`），导致"位于页面
+   上方"这条弱信号缺失，`trigger.suspicious` 对着已知案例算出了
+   `false`——不是检测器本身的 bug，是测试场景没有还原真实调用方式
+   （P1-A 是按整份文档跑 `scanDocumentForSuspiciousGlue` 的）。补上
+   `context` 并加了断言防止这个不一致再发生。
+
+**产出**：`frontend/src/utils/p1-results/` 下三个 JSON——
+`suspicious-lines.json`（P1-A，真实检测结果）、
+`candidate-comparisons.mock.json`（P1-B，MOCK 标签清清楚楚）、
+`experiment-summary.json`（汇总 + P1-C 的占位说明）。每个文件顶层都有
+`mode` 字段，防止以后 MOCK 结果和真实结果被混着分析。
+
+**没做的事（P1-C，必须本地做）**：这个沙箱环境的出站网络策略挡住了
+PaddleOCR-js（以及试过的替代品 tesseract.js）需要的模型文件域名，没法
+在这里初始化任何 OCR 引擎。**"二次 OCR 到底能不能把
+`JENNIFERWASHINGTON` 拆回 `JENNIFER WASHINGTON`"这个问题，本次任务没有
+回答，也回答不了**——需要在能连外网的本地浏览器里，用 `secondPassOcr.js`
+文件末尾写好的接入方式，接真实 `getOCREngine()` 和真实 canvas，对着
+这 5 个已知案例实际跑一遍，并且要跟 ground truth 比较，不是"retry 看起来
+更合理"就算数。18 封信、5 个已知案例，只够支撑 feasibility test，不足以
+证明"二次 OCR 提升了多少准确率"——那需要对每个目标字段建立 ground truth，
+还没做。
+
+**验证**：`node secondPassOcr.experiment.test.mjs` 26 通过 / 0 失败，
+六层回归全绿。
+
+---
+
 ## 2026-08-29 · ⚖️ 决定 12 · 决定 11 细化成 P0–P4，CLAUDE.md 欠账清单同步改写
 
 **背景**：决定 11 定了方向（隐私检测优先于账单业务理解），但只是方向，

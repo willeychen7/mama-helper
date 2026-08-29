@@ -1,0 +1,806 @@
+{
+  "mode": "REAL_DETECTOR_NO_OCR",
+  "note": "这是 suspiciousGlue 检测逻辑在真实 demo 信 OCR 文本上的真实输出，不涉及任何 OCR 引擎调用（检测器本身不需要 OCR，只读取已有的 OCR 结果）。",
+  "generatedAt": "2026-08-29T18:16:56.560Z",
+  "totalLines": 1226,
+  "totalSuspicious": 64,
+  "suspiciousRate": 0.052202283849918436,
+  "knownGlueCaseRecall": "5/5",
+  "knownCaseResults": [
+    {
+      "document": "Medicare_Notice",
+      "text": "JENNIFERWASHINGTON",
+      "caught": true
+    },
+    {
+      "document": "SoCalGas",
+      "text": "JOHNBDOE",
+      "caught": true
+    },
+    {
+      "document": "Hospital_Bill",
+      "text": "iJANEDOE",
+      "caught": true
+    },
+    {
+      "document": "Hospital_Bill",
+      "text": "JANEDOE:",
+      "caught": true
+    },
+    {
+      "document": "IRS_cp503",
+      "text": "JAMES&KARENQ.HINDS",
+      "caught": true
+    }
+  ],
+  "perDocument": [
+    {
+      "document": "SCE_Bill_Letter",
+      "totalLines": 53,
+      "suspiciousLines": 5,
+      "suspiciousRate": 0.09433962264150944
+    },
+    {
+      "document": "SCE_Letter",
+      "totalLines": 34,
+      "suspiciousLines": 2,
+      "suspiciousRate": 0.058823529411764705
+    },
+    {
+      "document": "hoag-invoice-mychart",
+      "totalLines": 45,
+      "suspiciousLines": 3,
+      "suspiciousRate": 0.06666666666666667
+    },
+    {
+      "document": "statefarm_bill",
+      "totalLines": 50,
+      "suspiciousLines": 2,
+      "suspiciousRate": 0.04
+    },
+    {
+      "document": "water_bill",
+      "totalLines": 108,
+      "suspiciousLines": 11,
+      "suspiciousRate": 0.10185185185185185
+    },
+    {
+      "document": "att_bill",
+      "totalLines": 92,
+      "suspiciousLines": 2,
+      "suspiciousRate": 0.021739130434782608
+    },
+    {
+      "document": "IRS_CP504_Notice",
+      "totalLines": 68,
+      "suspiciousLines": 2,
+      "suspiciousRate": 0.029411764705882353
+    },
+    {
+      "document": "SoCalGas",
+      "totalLines": 117,
+      "suspiciousLines": 5,
+      "suspiciousRate": 0.042735042735042736
+    },
+    {
+      "document": "aaa-policy_renew",
+      "totalLines": 52,
+      "suspiciousLines": 1,
+      "suspiciousRate": 0.019230769230769232
+    },
+    {
+      "document": "ca-dmv-registration-fee",
+      "totalLines": 98,
+      "suspiciousLines": 2,
+      "suspiciousRate": 0.02040816326530612
+    },
+    {
+      "document": "IRS_cp501",
+      "totalLines": 67,
+      "suspiciousLines": 3,
+      "suspiciousRate": 0.04477611940298507
+    },
+    {
+      "document": "IRS_cp503",
+      "totalLines": 67,
+      "suspiciousLines": 2,
+      "suspiciousRate": 0.029850746268656716
+    },
+    {
+      "document": "DMV_Registration",
+      "totalLines": 110,
+      "suspiciousLines": 4,
+      "suspiciousRate": 0.03636363636363636
+    },
+    {
+      "document": "Medicare_Notice",
+      "totalLines": 45,
+      "suspiciousLines": 4,
+      "suspiciousRate": 0.08888888888888889
+    },
+    {
+      "document": "SCE_Sample_Bill",
+      "totalLines": 65,
+      "suspiciousLines": 2,
+      "suspiciousRate": 0.03076923076923077
+    },
+    {
+      "document": "Medical_Invoice",
+      "totalLines": 31,
+      "suspiciousLines": 1,
+      "suspiciousRate": 0.03225806451612903
+    },
+    {
+      "document": "Hospital_Bill",
+      "totalLines": 74,
+      "suspiciousLines": 13,
+      "suspiciousRate": 0.17567567567567569
+    },
+    {
+      "document": "wm_trash_bill",
+      "totalLines": 50,
+      "suspiciousLines": 0,
+      "suspiciousRate": 0
+    }
+  ],
+  "suspiciousLines": [
+    {
+      "document": "SCE_Bill_Letter",
+      "lineIndex": 0,
+      "text": "EDISON'",
+      "score": 60,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "bbox 宽度相对同页字符基线偏宽（弱信号）",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "SCE_Bill_Letter",
+      "lineIndex": 2,
+      "text": "SOUTHERNCALIFORNIA",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "SCE_Bill_Letter",
+      "lineIndex": 8,
+      "text": "CLEANPOWERALLIANCE",
+      "score": 60,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "bbox 宽度相对同页字符基线偏宽（弱信号）",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "SCE_Bill_Letter",
+      "lineIndex": 10,
+      "text": "POD-ID",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "SCE_Bill_Letter",
+      "lineIndex": 21,
+      "text": "CLEANPOWERALLIANCE",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "SCE_Letter",
+      "lineIndex": 1,
+      "text": "EDISON",
+      "score": 60,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "bbox 宽度相对同页字符基线偏宽（弱信号）",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "SCE_Letter",
+      "lineIndex": 16,
+      "text": "SUBJECT:",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "hoag-invoice-mychart",
+      "lineIndex": 18,
+      "text": "SIGNATURE",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "hoag-invoice-mychart",
+      "lineIndex": 27,
+      "text": "STATEMENTDATE",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "hoag-invoice-mychart",
+      "lineIndex": 29,
+      "text": "ACCOUNTNUMBER",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "statefarm_bill",
+      "lineIndex": 5,
+      "text": "RENEWALDECLARATIONS",
+      "score": 60,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "bbox 宽度相对同页字符基线偏宽（弱信号）",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "statefarm_bill",
+      "lineIndex": 10,
+      "text": "SMITH,BRENDA",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "water_bill",
+      "lineIndex": 0,
+      "text": "VENTURARIVER",
+      "score": 60,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "bbox 宽度相对同页字符基线偏宽（弱信号）",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "water_bill",
+      "lineIndex": 1,
+      "text": "BILLINGSTATEMENT",
+      "score": 60,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "bbox 宽度相对同页字符基线偏宽（弱信号）",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "water_bill",
+      "lineIndex": 2,
+      "text": "WATERDISTRICT",
+      "score": 60,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "bbox 宽度相对同页字符基线偏宽（弱信号）",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "water_bill",
+      "lineIndex": 17,
+      "text": "USAGESUMMARY",
+      "score": 60,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "bbox 宽度相对同页字符基线偏宽（弱信号）",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "water_bill",
+      "lineIndex": 18,
+      "text": "ACCOUNTSUMMARY",
+      "score": 60,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "bbox 宽度相对同页字符基线偏宽（弱信号）",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "water_bill",
+      "lineIndex": 34,
+      "text": "CURRENTCHARGESUMMARY",
+      "score": 60,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "bbox 宽度相对同页字符基线偏宽（弱信号）",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "water_bill",
+      "lineIndex": 40,
+      "text": "CHARGE",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "water_bill",
+      "lineIndex": 58,
+      "text": "DESCRIPTION",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "water_bill",
+      "lineIndex": 60,
+      "text": "MONTHLYWATERBUDGETANDUSE",
+      "score": 60,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "bbox 宽度相对同页字符基线偏宽（弱信号）",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "water_bill",
+      "lineIndex": 74,
+      "text": "IMPORTANTMESSAGE:",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "bbox 宽度相对同页字符基线偏宽（弱信号）"
+      ]
+    },
+    {
+      "document": "water_bill",
+      "lineIndex": 78,
+      "text": "*RECURRINGPAYMENT-DONOTPAY*",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "bbox 宽度相对同页字符基线偏宽（弱信号）"
+      ]
+    },
+    {
+      "document": "att_bill",
+      "lineIndex": 3,
+      "text": "TECHGROUP&ASSOCIATES.INC",
+      "score": 75,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "形如「A&B」的联名粘连",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "att_bill",
+      "lineIndex": 90,
+      "text": "AT&TMOBILITY",
+      "score": 65,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "形如「A&B」的联名粘连"
+      ]
+    },
+    {
+      "document": "IRS_CP504_Notice",
+      "lineIndex": 16,
+      "text": "BUSINESSNAME",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "IRS_CP504_Notice",
+      "lineIndex": 17,
+      "text": "ADDRESS",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "SoCalGas",
+      "lineIndex": 1,
+      "text": "SERVICEFOR",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "SoCalGas",
+      "lineIndex": 2,
+      "text": "INOWDLN",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "SoCalGas",
+      "lineIndex": 4,
+      "text": "JOHNBDOE",
+      "score": 60,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "bbox 宽度相对同页字符基线偏宽（弱信号）",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "SoCalGas",
+      "lineIndex": 21,
+      "text": "AMOUNTDUE",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "SoCalGas",
+      "lineIndex": 110,
+      "text": "TAXES&FEESONGASCHARGES",
+      "score": 75,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "形如「A&B」的联名粘连",
+        "bbox 宽度相对同页字符基线偏宽（弱信号）"
+      ]
+    },
+    {
+      "document": "aaa-policy_renew",
+      "lineIndex": 5,
+      "text": "EXPIRES:",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "ca-dmv-registration-fee",
+      "lineIndex": 1,
+      "text": "DMVA-DIM",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "ca-dmv-registration-fee",
+      "lineIndex": 2,
+      "text": "STHOOFCALIIODIM",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "IRS_cp501",
+      "lineIndex": 13,
+      "text": "XXX-XXX-XXXX",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "IRS_cp501",
+      "lineIndex": 16,
+      "text": "ADDRESS",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "IRS_cp501",
+      "lineIndex": 17,
+      "text": "TAXPAYERNAME",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "IRS_cp503",
+      "lineIndex": 12,
+      "text": " NNN-NN-NNNN",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "IRS_cp503",
+      "lineIndex": 17,
+      "text": "JAMES&KARENQ.HINDS",
+      "score": 75,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "形如「A&B」的联名粘连",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "DMV_Registration",
+      "lineIndex": 4,
+      "text": "DUEDATE",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "DMV_Registration",
+      "lineIndex": 12,
+      "text": "BODYTYPE",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "DMV_Registration",
+      "lineIndex": 14,
+      "text": "AMOUNTDUE",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "DMV_Registration",
+      "lineIndex": 31,
+      "text": "OWNERRESPONSIBILITYFEE",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "Medicare_Notice",
+      "lineIndex": 4,
+      "text": "JENNIFERWASHINGTON",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "Medicare_Notice",
+      "lineIndex": 5,
+      "text": "THISISNOTABILL",
+      "score": 60,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "bbox 宽度相对同页字符基线偏宽（弱信号）",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "Medicare_Notice",
+      "lineIndex": 7,
+      "text": "TEMPORARYADDRESSNAME",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "Medicare_Notice",
+      "lineIndex": 8,
+      "text": "STREETADDRESS",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "SCE_Sample_Bill",
+      "lineIndex": 0,
+      "text": "EDISON",
+      "score": 60,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "bbox 宽度相对同页字符基线偏宽（弱信号）",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "SCE_Sample_Bill",
+      "lineIndex": 44,
+      "text": "EDISON",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "bbox 宽度相对同页字符基线偏宽（弱信号）"
+      ]
+    },
+    {
+      "document": "Medical_Invoice",
+      "lineIndex": 0,
+      "text": "INVOICE",
+      "score": 60,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "bbox 宽度相对同页字符基线偏宽（弱信号）",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "Hospital_Bill",
+      "lineIndex": 6,
+      "text": "DISCOVER",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "Hospital_Bill",
+      "lineIndex": 7,
+      "text": "AMERICAN",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "Hospital_Bill",
+      "lineIndex": 14,
+      "text": "CARDNUMBER",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "Hospital_Bill",
+      "lineIndex": 19,
+      "text": "STATEMENTDATE",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "Hospital_Bill",
+      "lineIndex": 20,
+      "text": "ACCOUNTNUMBER",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "Hospital_Bill",
+      "lineIndex": 21,
+      "text": "PLEASEPAYTHISAMOUNT",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "Hospital_Bill",
+      "lineIndex": 30,
+      "text": "DATEDUE:",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "Hospital_Bill",
+      "lineIndex": 31,
+      "text": "ADDRESSEE",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "Hospital_Bill",
+      "lineIndex": 34,
+      "text": "iJANEDOE",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "Hospital_Bill",
+      "lineIndex": 44,
+      "text": "JANEDOE:",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "Hospital_Bill",
+      "lineIndex": 50,
+      "text": "BALANCE:",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "bbox 宽度相对同页字符基线偏宽（弱信号）"
+      ]
+    },
+    {
+      "document": "Hospital_Bill",
+      "lineIndex": 53,
+      "text": "ACCOUNTNUMBER",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "位于页面上方（弱信号）"
+      ]
+    },
+    {
+      "document": "Hospital_Bill",
+      "lineIndex": 55,
+      "text": "TOTALCHARGES",
+      "score": 50,
+      "reasons": [
+        "纯大写（容许 1 个杂散小写字符）无空格，长度像两个词被粘在一起",
+        "bbox 宽度相对同页字符基线偏宽（弱信号）"
+      ]
+    }
+  ]
+}
