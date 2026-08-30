@@ -32,6 +32,53 @@
 
 ---
 
+## 2026-08-30 · ✅ 脱敏召回测试换成真实 OCR fixture：25/38 → 29/38，姓名 50%→75%，确认大部分旧漏检是过时 OCR 的假象
+
+**为什么换**：昨天诊断的姓名/地址漏检几乎全部是「OCR 把姓名/地址粘连
+成一个词」导致的，而 P1 那次已经证明这批粘连案例用**当前真实
+PP-OCRv6** 重跑后全部不再复现。`contentRedactor.recall.test.mjs` 当时
+用的还是那次升级之前的旧 fixture（`demo_ocr_pp.json`），也就是说
+之前报的 50%/59% 召回率，测的是过时 OCR 行为，不是正则/语境判断今天
+真实的表现——这个疑点是用户直接问出来的。
+
+**怎么做的**：`contentRedactor.recall.test.mjs` 现在优先读
+`p1-results/fixture-regen-2026-08-29/fixture-regen-real.json` 里的真实
+OCR 输出，只有这批里没覆盖到的信（`IRS_cp503` 是 PDF 没跑进去、
+`SCE_Bill_Letter`/`hoag-invoice-mychart` 不在这批重扫范围内）才回退到
+旧 fixture——回退了几封会在测试输出里明确标出来，不会悄悄用旧数据
+充数。
+
+**结果**：总召回 25/38 → 29/38（66%→76%），姓名 6/12→9/12
+（50%→75%），地理信息 10/17→11/17（59%→65%）。之前列的
+`JENNIFERWASHINGTON`/`JOHNBDOE`/`JANEDOE`/`John Smith`/`Aaron Brown`
+这些「名姓粘连」案例在新 fixture 上全部正确挡住了——确认这些从来
+不是「正则认不出姓名形状」，是旧 OCR 输出的假象。已把 BASELINE 门槛
+从 25 上调到 29（测试规矩：「只许升不许降」）。
+
+**用新 fixture 才暴露出来的两个真实缺口**（不是 OCR 粘连，是逻辑/正则
+本身的问题）：
+- `att_bill` 的 `WINDBELL`/`MESQUITE`（收件人地址）没被挡——地址行
+  本身「924 WINDBELL CIR」OCR 完全正确、带空格，`STREET_RE` 认得出来，
+  但它离「TECH GROUP & ASSOCIATES. INC」只有 3 行，命中了
+  `STRONG_ORG_HINTS`（`inc`/`associates`），于是 `isOrgContactLine` 把
+  它当成机构地址放行了。但这行其实是收件人自己的公司名（这是一张寄给
+  企业客户的 AT&T 账单，`TECH GROUP & ASSOCIATES INC` 是收件人，不是
+  寄件机构），跟 `SCE_Bill_Letter` 那条已知漏（`Service address` 被
+  当成机构地址）是**同一类根因**——`STRONG_ORG_HINTS` 只能判断"这行
+  像不像机构名"，判断不出"这个机构名是寄件方还是收件方"。这正是
+  P0-C 要解决的问题，这次是第二个独立real案例，进一步确认 P0-C 的
+  优先级判断没错。
+- `DMV_Registration` 的 `GONZELES C`（收件人姓名）没被挡——不是 OCR
+  粘连，是真实的正则形状缺口：DMV 这类政府信件常见「姓 名首字母」
+  格式（`GONZELES C`，姓氏+一个字母，没有逗号），现有 `looksLikeName`
+  没覆盖这种形状。
+
+六层回归全绿（`phone.test.mjs` 因本地缺真实照片 fixture 无法跑，跟
+这次改动无关；`piiSyntheticBenchmark.test.mjs` 的 1 个已知失败是无
+分隔符裸数字电话的正则缺口，跟这次无关）。
+
+---
+
 ## 2026-08-30 · 🐛 修复 `isOrgContactLine` 的 PHONE 误放行（先加回归断言，再改代码）
 
 **是被哪个测试炸出来的**：昨天（2026-08-29）新增的

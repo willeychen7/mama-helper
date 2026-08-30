@@ -26,10 +26,32 @@
 import fs from 'fs';
 const { buildTranslatablePayload } = await import('./contentRedactor.js');
 
-const docs = {
+/*
+ * 2026-08-30：换成真实 OCR 引擎（PP-OCRv6）重新跑过的 fixture——
+ * 旧的 demo_ocr_pp.json/demo_ocr_photo.json 是 P1 那次诊断之前的
+ * 老版本，很多姓名/地址漏检其实是「旧 OCR 把它们粘连成一个词」
+ * 导致的，跟今天的真实 OCR 输出已经不是同一回事（见 P1 结论：
+ * 那几个粘连案例用当前引擎重跑后全部不再复现）。用旧 fixture 打
+ * 出来的召回率数字，测的是过时的 OCR 行为，不是正则/语境判断今天
+ * 真实的表现。
+ *
+ * 新 fixture 目前只覆盖了 15 封信里的一部分（IRS_cp503 是 PDF，
+ * 没跑进去；SCE_Bill_Letter / hoag-invoice-mychart 也不在这批里）——
+ * 这几封暂时还是用旧 fixture 兜底，缺口在下面输出里会标出来。
+ */
+const FRESH_FIXTURE_PATH = 'p1-results/fixture-regen-2026-08-29/fixture-regen-real.json';
+const oldDocs = {
   ...JSON.parse(fs.readFileSync('demo_ocr_pp.json', 'utf8')),
   ...JSON.parse(fs.readFileSync('demo_ocr_photo.json', 'utf8'))
 };
+let freshDocs = {};
+try {
+  freshDocs = JSON.parse(fs.readFileSync(FRESH_FIXTURE_PATH, 'utf8')).fixture || {};
+} catch (err) {
+  console.log(`⚠️ 读不到新 fixture（${FRESH_FIXTURE_PATH}），全部回退到旧 fixture：${err.message}`);
+}
+const docs = { ...oldDocs, ...freshDocs };
+const freshNames = new Set(Object.keys(freshDocs));
 
 /*
  * hipaa: Safe Harbor 18 类里的第几类（用来分组统计）
@@ -165,6 +187,11 @@ for (const [name, items] of Object.entries(LABELS)) {
   }
 }
 
+const staleNames = Object.keys(LABELS).filter((n) => docs[n] && !freshNames.has(n));
+if (staleNames.length) {
+  console.log(`⚠️ 这 ${staleNames.length} 封信还在用旧 fixture（不是当前真实 OCR 输出）：${staleNames.join('、')}\n`);
+}
+
 console.log('按 HIPAA Safe Harbor 分类的召回率');
 console.log('─'.repeat(66));
 for (const cat of Object.keys(byCat).sort((a, b) => a - b)) {
@@ -189,7 +216,14 @@ console.log(`总计 ${caught}/${total}  ${pct}%   （${Object.keys(LABELS).lengt
  *
  * 每修好一个，就把门槛往上调一格。
  */
-const BASELINE = 25; // 2026-08-29 的实测值（11 封信、38 条——任务 3B 的 NER 交叉核对又带出一条新漏标）
+/*
+ * 2026-08-30：换成真实 OCR fixture 之后从 25 升到 29——不是正则变强了，
+ * 是之前那几条漏检本来就是旧 OCR 粘连的假象（P1 的结论）。真实剩下的
+ * 缺口是 att_bill（机构名误判，见同日 journal）和 DMV_Registration
+ * （姓名格式没覆盖到），跟 3 封还没上真实 fixture 的信（IRS_cp503 /
+ * SCE_Bill_Letter / hoag-invoice-mychart）。
+ */
+const BASELINE = 29;
 console.log(`\n门槛：至少挡住 ${BASELINE}/${total}（今天的水平，只许升不许降）`);
 
 const known = leaks.map((l) => `${l.letter} · ${l.text}（${l.note}）`);
