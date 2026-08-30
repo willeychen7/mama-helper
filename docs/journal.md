@@ -33,6 +33,76 @@
 
 ---
 
+## 2026-08-30 · ✅ SCE_Bill_Letter + IRS_cp503 上真实 PP-OCRv6 fixture：脱敏召回 31/38 → 35/38，再次确认漏检是旧 OCR 粘连的假象
+
+**为什么做**：上一轮 P0-C 定论时，`contentRedactor.recall.test.mjs` 里
+`SCE_Bill_Letter` / `IRS_cp503` 这两封还在用 P1 之前的旧 fixture
+（`demo_ocr_pp.json`），它们贡献了当时 7 个漏检里的 5 个，形态全是
+「OCR 把街道/城市/姓名粘成一个词」——而项目已经两次证明（决定 12、
+换 fixture 那次）这类漏检大概率是过时 OCR 的假象。按决定 12 的规矩，
+先换真实 fixture 看数据，不写「修复粘连」的代码。
+
+**怎么做的**：
+- 用户在本地用 `fixture-regen.html`（当前真实 PP-OCRv6 引擎，worker
+  模式，平均 confidence 99.3–99.6）重跑了这两封，导出 JSON。
+- `IRS_cp503` 只有 PDF —— 用 macOS 自带的
+  `qlmanage -t -s 3300 IRS_cp503.pdf` 渲染成 2550×3300（≈300dpi）PNG
+  再跑，不需要装 poppler / imagemagick。渲染出来的原图文字本来就是
+  带空格分开的，`JAMES & KAREN Q. HINDS` 从来没粘过，是旧 OCR 的锅。
+- 新 fixture 存到 `p1-results/fixture-regen-2026-08-30/fixture-regen-real.json`，
+  `contentRedactor.recall.test.mjs` 改成合并加载两批 fresh fixture
+  （2026-08-29 那批 15 封 + 这批 2 封）。
+- 这两封的断言文本从粘连形态（`1234FIRSTAVE` / `JAMES&KARENQ.HINDS`
+  等）改回带空格形态。**这是必须的**：用粘连形态去 `includes()` 新
+  OCR 文本永远搜不到，等于「测试自己假装挡住了」——项目反复踩过的坑。
+
+**结果：31/38 → 35/38（92%）。** 4 条旧漏检直接被现有逻辑挡住，
+没改任何正则/分类器：
+
+| 旧 fixture（粘连） | v6 输出（带空格） | 现在 |
+|---|---|---|
+| `1234FIRSTAVE` | `1234 FIRST AVE` | ✅ 挡住（判为收件人地址区块）|
+| `JAMES&KARENQ.HINDS` | `JAMES & KAREN Q. HINDS` | ✅ 挡住 |
+| `22BOULDERSTREET` | `22 BOULDER STREET` | ✅ 挡住 |
+| `HANSON,CT00000-7253` | `HANSON, CT 00000-7253` | ✅ 挡住 |
+
+跟前两次一样，是「旧 OCR 假象消失」，不是检测能力变强。`BASELINE`
+31 → 35（测试规矩：只许升不许降）。
+
+**顺带证实了一件 P0-C 留的悬念**：之前担心 SCE 的服务地址紧挨
+`CLEAN POWER ALLIANCE` / `EDISON`（STRONG_ORG_HINTS 命中）会被
+`classifyOwnership` 判成 SENDER 放行——**在干净 OCR 上没有复现**，
+`1234 FIRST AVE` 现在正确判为「位于收件人地址区块」。P0-C 的 ownership
+管线 + 解开粘连的 OCR 一起把它接住了。
+
+**剩下 3 条漏检，逐条查过 `buildTranslatablePayload` 的 withheld 列表，
+全部落在 Detection 层（没有 OCR / Ownership / Redaction 层的漏）**：
+
+- `DMV_Registration · GONZELES C` —— 这封没重跑（不在本次两封内）。
+  `looksLikeName` 不覆盖「姓 + 单个尾首字母、无逗号」形状。
+- `SCE_Bill_Letter · SIMI VALLEY, CA`（fixture 行13）—— 行10
+  `1234 FIRST AVE` 挡住了，但行13 隔着行12 `CLEAN POWER ALLIANCE`
+  （右栏 left=884），地址块链条断在这里；且 `SIMI VALLEY, CA` 单行
+  （城市+州、无 ZIP、无门牌号）不命中地址正则。次因是「右栏机构名
+  打断地址块延伸」，属 P2 版面问题。
+- `IRS_cp503 · James Q. Hinds`（fixture 行51，付款联）—— 抬头块全大写
+  `JAMES & KAREN Q. HINDS` 已挡住；付款联这次是混排 `名 中间名首字母 姓`。
+  相邻行53/56（街道、城市州邮编）作为地址块挡住了，但没往上延伸 2 行
+  到姓名行，且 `looksLikeName` 混排分支只认「两个词」。
+
+**没做（按用户要求，这次只 checkpoint 成果，不改 production detection
+logic）**：上面 3 条 Detection 形状缺口留作独立小任务，都不需要碰
+Ownership / Redaction。`hoag-invoice-mychart` 是最后一封还在旧 fixture
+上的信，下次 `fixture-regen.html` 时一起重生成，就能彻底退役
+`demo_ocr_pp.json` / `demo_ocr_photo.json`。
+
+**验证**：`contentRedactor.recall.test.mjs` 35/38 exit 0，六层全量回归
+无新增失败（`phone.test.mjs` 缺本地 `phone_ocr.json` 无法跑、
+`piiSyntheticBenchmark.test.mjs` 的 1 个无分隔符裸数字电话失败——两个
+都是既有的、跟本次无关）。
+
+---
+
 ## 2026-08-30 · ⚖️ P0-C：候选归属判断拆成 Detection → Ownership → Redaction 三段，`isOrgContactLine` 不再身兼三职
 
 **用户拍板的方案**：不要在 detection 阶段就用「离机构名近」直接过滤/放行

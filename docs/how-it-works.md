@@ -495,7 +495,7 @@ HOA 按规约算，每家都不同，写一个数字出去就是编。不填的�
 | 朗读安全 | `speech.test.mjs` | 朗读 34 通过 / 0 失败 |
 | 金额佐证 | `amount.corroboration.test.mjs` | 金额佐证 4 通过 / 0 失败 |
 | 版面还原 | `layoutText.test.mjs` | 版面还原 8 通过 / 0 失败 |
-| 脱敏召回 | `contentRedactor.recall.test.mjs` | 脱敏召回 31/38 |
+| 脱敏召回 | `contentRedactor.recall.test.mjs` | 脱敏召回 35/38 |
 | 知识库防线 | `knowledge.test.mjs` | 知识库 12 通过 / 0 失败 |
 
 ### 词典规模

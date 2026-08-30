@@ -35,20 +35,28 @@ const { buildTranslatablePayload } = await import('./contentRedactor.js');
  * 出来的召回率数字，测的是过时的 OCR 行为，不是正则/语境判断今天
  * 真实的表现。
  *
- * 新 fixture 目前只覆盖了 15 封信里的一部分（IRS_cp503 是 PDF，
- * 没跑进去；SCE_Bill_Letter / hoag-invoice-mychart 也不在这批里）——
- * 这几封暂时还是用旧 fixture 兜底，缺口在下面输出里会标出来。
+ * 新 fixture 分两批：
+ *   fixture-regen-2026-08-29  头一批 15 封（不含 IRS_cp503 / SCE_Bill_Letter）
+ *   fixture-regen-2026-08-30  补跑 SCE_Bill_Letter + IRS_cp503（IRS 由 PDF
+ *                             用 qlmanage 渲染成 300dpi PNG 后再跑）
+ * 后一批 merge 在前一批之上。还没上真实 fixture 的信（hoag-invoice-mychart）
+ * 继续用旧 fixture 兜底，缺口在下面输出里会标出来。
  */
-const FRESH_FIXTURE_PATH = 'p1-results/fixture-regen-2026-08-29/fixture-regen-real.json';
+const FRESH_FIXTURE_PATHS = [
+  'p1-results/fixture-regen-2026-08-29/fixture-regen-real.json',
+  'p1-results/fixture-regen-2026-08-30/fixture-regen-real.json'
+];
 const oldDocs = {
   ...JSON.parse(fs.readFileSync('demo_ocr_pp.json', 'utf8')),
   ...JSON.parse(fs.readFileSync('demo_ocr_photo.json', 'utf8'))
 };
 let freshDocs = {};
-try {
-  freshDocs = JSON.parse(fs.readFileSync(FRESH_FIXTURE_PATH, 'utf8')).fixture || {};
-} catch (err) {
-  console.log(`⚠️ 读不到新 fixture（${FRESH_FIXTURE_PATH}），全部回退到旧 fixture：${err.message}`);
+for (const p of FRESH_FIXTURE_PATHS) {
+  try {
+    freshDocs = { ...freshDocs, ...(JSON.parse(fs.readFileSync(p, 'utf8')).fixture || {}) };
+  } catch (err) {
+    console.log(`⚠️ 读不到新 fixture（${p}）：${err.message}`);
+  }
 }
 const docs = { ...oldDocs, ...freshDocs };
 const freshNames = new Set(Object.keys(freshDocs));
@@ -62,18 +70,15 @@ const LABELS = {
   SCE_Bill_Letter: [
     { text: 'BAKER, NATE', hipaa: 1, note: '收件人姓名，「姓, 名」格式' },
     /*
-     * 原来这两条断言写的是带空格的 '1234 FIRST AVE' / 'SIMI VALLEY'，
-     * 但真实 OCR 输出是无空格粘连的 '1234FIRSTAVE' / 'SIMIVALLEY'——
-     * 带空格的写法在粘连文本里永远搜不到，等于测试自己一直在假装挡住了。
-     * 改成粘连形态后才发现这两行其实一直在泄露：
-     * 「Service address」紧挨着「CLEAN POWER ALLIANCE」「EDISON」这些
-     * STRONG_ORG_HINTS 命中的机构名，isOrgContactLine 把它当成了机构地址
-     * 放行——但它明明是老人自己的服务地址，不是机构地址。
-     * 地址正则本身也不认粘连形态（和刚修的姓名 bug 同一类根因）。
-     * 这两处先如实记成「已知漏」，正则/语境判断怎么修留到后续任务。
+     * 2026-08-30：换成 fixture-regen-2026-08-30 的真实 PP-OCRv6 输出后，
+     * 这两行不再粘连——'1234FIRSTAVE'→'1234 FIRST AVE'、
+     * 'SIMIVALLEY'→'SIMI VALLEY, CA'。断言文本同步改回带空格的形态
+     * （用粘连形态断言等于「测试自己假装挡住了」）。这两行是否真的被挡，
+     * 由下面的 leak 检查如实反映——之前担心的「紧挨 CLEAN POWER
+     * ALLIANCE / EDISON 被当机构地址放行」在新 OCR 上是否复现，看跑分。
      */
-    { text: '1234FIRSTAVE', hipaa: 2, note: '服务地址（老人自己的），紧挨机构名被当成机构地址放行，OCR 粘连' },
-    { text: 'SIMIVALLEY', hipaa: 2, note: '服务地址所在城市，同上，OCR 粘连' },
+    { text: '1234 FIRST AVE', hipaa: 2, note: '服务地址（老人自己的），紧挨机构名' },
+    { text: 'SIMI VALLEY', hipaa: 2, note: '服务地址所在城市' },
     { text: '8012345678', hipaa: 11, note: '服务账号' },
     { text: '123456789012345678', hipaa: 11, note: 'POD-ID' }
   ],
@@ -102,18 +107,17 @@ const LABELS = {
     { text: '58037035', hipaa: 11, note: 'Foundation Account' }
   ],
   IRS_cp503: [
-    { text: 'JAMES&KARENQ.HINDS', hipaa: 1, note: '收件人姓名（官方示例姓名，非真人），OCR 粘连成一个词' },
-    { text: '22BOULDERSTREET', hipaa: 2, note: '收件人街道，OCR 粘连' },
-    { text: 'HANSON,CT00000-7253', hipaa: 2, note: '收件人城市州邮编，OCR 粘连' },
     /*
-     * 这条不是靠肉眼标注找到的，是任务 3B 做 NER A/B 测试时，compromise
-     * 在其余 3 条已知漏检上全部交白卷，却顺手抓出了这条——付款联那一段
-     * 里同一个人名的第二次出现，跟第一次（JAMES&KARENQ.HINDS，全大写粘连）
-     * 长得完全不一样："James Q.Hinds"，中间名首字母跟姓氏粘连（"Q.Hinds"
-     * 中间没有空格）。现有正则要求中间名和姓氏之间有空格，这里没有，所以
-     * 一直没被挡住——这次之前的人工标注也漏标了，是被 NER 交叉核对带出来的。
+     * 2026-08-30：从 fixture-regen-2026-08-30 的真实 PP-OCRv6 输出重标
+     * （之前用的是旧 fixture，PDF 没跑进去）。旧 fixture 里这几行全是
+     * 粘连的（JAMES&KARENQ.HINDS / 22BOULDERSTREET / HANSON,CT00000-7253 /
+     * James Q.Hinds），新 OCR 全部带空格分开了——原图本来就是分开的，
+     * 粘连是旧 OCR 的假象。断言文本同步改成新 OCR 的实际输出。
      */
-    { text: 'James Q.Hinds', hipaa: 1, note: '收件人姓名第二次出现（付款联），中间名首字母跟姓氏粘连（"Q.Hinds" 没空格）——被任务 3B 的 NER 交叉核对带出来，之前人工标注也漏标了' }
+    { text: 'JAMES & KAREN Q. HINDS', hipaa: 1, note: '收件人姓名（官方示例姓名，非真人）' },
+    { text: '22 BOULDER STREET', hipaa: 2, note: '收件人街道' },
+    { text: 'HANSON, CT 00000-7253', hipaa: 2, note: '收件人城市州邮编' },
+    { text: 'James Q. Hinds', hipaa: 1, note: '收件人姓名第二次出现（付款联）——被任务 3B 的 NER 交叉核对带出来，之前人工标注也漏标了' }
   ],
   DMV_Registration: [
     { text: 'GONZELES C', hipaa: 1, note: '收件人姓名（官方示例姓名，非真人），「姓 名首字母」格式' },
@@ -223,11 +227,22 @@ console.log(`总计 ${caught}/${total}  ${pct}%   （${Object.keys(LABELS).lengt
  * 29 → 30；顺手修复的 looksLikeName 全大写形状不再要求「在页面上方」
  * 又从 30 → 31（付款联/回执区重印的收件人姓名之前全靠一个无关 bug的
  * 副作用碰巧被护住，那个 bug 修好之后这里裸奔了，属于同一轮改动
- * 连带发现的）。真实剩下的缺口是 DMV_Registration（姓名格式没覆盖到）
- * 和 3 封还没上真实 fixture 的信（IRS_cp503 / SCE_Bill_Letter /
- * hoag-invoice-mychart）身上的 OCR 粘连。
+ * 连带发现的）。
+ *
+ * 2026-08-30（第二次）：SCE_Bill_Letter + IRS_cp503 也上了真实 PP-OCRv6
+ * fixture（fixture-regen-2026-08-30，IRS 由 PDF 用 qlmanage 渲染成 300dpi
+ * PNG 后再跑）。旧 fixture 里这两封的街道/城市/姓名全是粘连的，新 OCR
+ * 全部带空格分开——4 条漏检（SCE「1234 FIRST AVE」、IRS「JAMES & KAREN
+ * Q. HINDS」/「22 BOULDER STREET」/「HANSON, CT 00000-7253」）直接被现有
+ * 逻辑挡住，31 → 35，跟第一次一样是「旧 OCR 假象消失」，不是正则变强。
+ * 真实剩下 3 条，全是 Detection 层形状缺口（没有 OCR / Ownership /
+ * Redaction 层的漏）：DMV_Registration「GONZELES C」（姓 首字母，未重跑）、
+ * SCE_Bill_Letter「SIMI VALLEY, CA」（城市+州、无 ZIP 的单行不命中地址
+ * 正则）、IRS_cp503 付款联「James Q. Hinds」（名 中间名首字母 姓，
+ * looksLikeName 混排分支只认两个词）。只剩 hoag-invoice-mychart 还在旧
+ * fixture 上。
  */
-const BASELINE = 31;
+const BASELINE = 35;
 console.log(`\n门槛：至少挡住 ${BASELINE}/${total}（今天的水平，只许升不许降）`);
 
 const known = leaks.map((l) => `${l.letter} · ${l.text}（${l.note}）`);

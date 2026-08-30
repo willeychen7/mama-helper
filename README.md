@@ -69,7 +69,7 @@ dictionary sizes behind it.
 | `speech.test.mjs` | 朗读 34 通过 / 0 失败 |
 | `amount.corroboration.test.mjs` | 金额佐证 4 通过 / 0 失败 |
 | `layoutText.test.mjs` | 版面还原 8 通过 / 0 失败 |
-| `contentRedactor.recall.test.mjs` | 脱敏召回 31/38 |
+| `contentRedactor.recall.test.mjs` | 脱敏召回 35/38 |
 | `knowledge.test.mjs` | 知识库 12 通过 / 0 失败 |
 
 Dictionary sizes: 已知机构 40 · 信件类别 26 · 信件子类型 15 · 金额锚点 26 · 日期锚点 32 · 句式词典 30 · 诈骗特征 9 · 交叉校验 20 · 知识库词条 38.
