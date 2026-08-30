@@ -217,13 +217,17 @@ console.log(`总计 ${caught}/${total}  ${pct}%   （${Object.keys(LABELS).lengt
  * 每修好一个，就把门槛往上调一格。
  */
 /*
- * 2026-08-30：换成真实 OCR fixture 之后从 25 升到 29——不是正则变强了，
- * 是之前那几条漏检本来就是旧 OCR 粘连的假象（P1 的结论）。真实剩下的
- * 缺口是 att_bill（机构名误判，见同日 journal）和 DMV_Registration
- * （姓名格式没覆盖到），跟 3 封还没上真实 fixture 的信（IRS_cp503 /
- * SCE_Bill_Letter / hoag-invoice-mychart）。
+ * 2026-08-30：换成真实 OCR fixture 之后从 25 升到 29（不是正则变强了，
+ * 是之前那几条漏检本来就是旧 OCR 粘连的假象，P1 的结论）；同一天做完
+ * P0-C 的 ownership 三段式拆分之后，att_bill 的机构名误判修好，
+ * 29 → 30；顺手修复的 looksLikeName 全大写形状不再要求「在页面上方」
+ * 又从 30 → 31（付款联/回执区重印的收件人姓名之前全靠一个无关 bug的
+ * 副作用碰巧被护住，那个 bug 修好之后这里裸奔了，属于同一轮改动
+ * 连带发现的）。真实剩下的缺口是 DMV_Registration（姓名格式没覆盖到）
+ * 和 3 封还没上真实 fixture 的信（IRS_cp503 / SCE_Bill_Letter /
+ * hoag-invoice-mychart）身上的 OCR 粘连。
  */
-const BASELINE = 29;
+const BASELINE = 31;
 console.log(`\n门槛：至少挡住 ${BASELINE}/${total}（今天的水平，只许升不许降）`);
 
 const known = leaks.map((l) => `${l.letter} · ${l.text}（${l.note}）`);

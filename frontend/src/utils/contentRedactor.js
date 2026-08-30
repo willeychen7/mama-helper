@@ -22,6 +22,7 @@
  * 而不是「老人的账号被发出去了」。这个方向是刻意选的。
  */
 
+import { classifyOwnership } from './piiOwnership.js';
 
 const normalize = (text) =>
   String(text || '')
@@ -150,10 +151,19 @@ export const looksLikeName = (text, context = {}) => {
   //     没有它「Generation Charges」就会被当成人名
   const inUpperArea = context.inUpperArea !== false;
 
-  if (inUpperArea && raw.length <= 34 && !ORG_HINTS.test(raw) && !hasDocWord(raw)) {
-    if (/^[A-Z][a-z]+(\s+[A-Z]\.?)?\s+[A-Z][a-z]+$/.test(raw)) {
+  if (raw.length <= 34 && !ORG_HINTS.test(raw) && !hasDocWord(raw)) {
+    if (inUpperArea && /^[A-Z][a-z]+(\s+[A-Z]\.?)?\s+[A-Z][a-z]+$/.test(raw)) {
       return '看起来是人名';
     }
+    /*
+     * 全大写「两个词」这条不再要求 inUpperArea——2026-08-30 修
+     * P0-C 时炸出来的：付款联/回执区常见把收件人姓名再印一次
+     * （双窗口回邮信封），位置在页面下半部，之前全靠一个无关的
+     * bug（地址块位置判断错误）当副作用碰巧护住了它，修好那个 bug
+     * 之后这里就裸奔了。全大写两个词比大小写混排的「两个词」误判
+     * 文档正文的概率低得多（正文短语很少整体全大写），放宽这一条
+     * 风险可控，跑过一遍完整回归确认没有新增误伤。
+     */
     if (/^[A-Z]{2,}(\s+[A-Z]\.?)?\s+[A-Z]{2,}$/.test(raw)) {
       return '看起来是人名（全大写）';
     }
@@ -348,13 +358,13 @@ const buildContextMap = (lines, senderLineIndex = null) => {
  * 这一行是不是「机构自己的联系方式」。
  * 是的话可以放行，因为它对老人有用而且不涉及隐私。
  *
- * 注意：这个判定同时喂给了地址（关卡 4）、网址/邮箱（关卡 6）两个
- * 完全不同的问题——「这个地址是机构的还是老人的」跟「这个电话是
- * 机构的还是老人的」看起来像同一个问题，但地址那边已经有 STREET_RE
- * 之类的形状约束兜底，纯位置判断（挨着机构名）出问题的概率低；电话
- * 没有这层形状约束，纯位置判断在电话上出的 bug 见下面 isOrgOwnPhoneLine
- * 的注释。**不要把电话专用的内容信号收紧塞进这个通用函数**——之前
- * 这么改过，把机构自己的地址也一起挡了（hoag 回归测试炸出来的）。
+ * 只用在 EMAIL/网址（关卡 1 的 EMAIL 分支、关卡 6）——这两处一直
+ * 没出过真实事故，因为个人邮箱域名已经被 PERSONAL_EMAIL_DOMAIN
+ * 短路挡掉了，纯位置判断的风险很低，所以没有跟着挪进 P0-C 的
+ * `classifyOwnership`。ADDRESS（关卡 4）和 PHONE（关卡 1 的 PHONE
+ * 分支）都出过「纯位置判断放行了收件人自己的信息」的真实事故
+ * （2026-08-29 的电话 bug、2026-08-30 的 att_bill 地址 bug），
+ * 已经改成走 `piiOwnership.js` 的多证据 `classifyOwnership`。
  */
 const isOrgContactLine = (raw, index, ctx) => {
   if (ctx.nearPerson(index, 2)) return false;
@@ -365,39 +375,6 @@ const isOrgContactLine = (raw, index, ctx) => {
     ORG_ROUTING_LABEL.test(raw) ||
     ctx.domainMatchesOrg(raw)
   );
-};
-
-/*
- * 「联系方式」引导语——客服电话旁边常见的标签词。
- *
- * 特意不收 "contact number" / "phone number" 这类词——「Contact
- * number: 562-555-0134」这种写法本身就分不清是「联系我们」还是
- * 「填你的联系电话」，只有「contact us」这种明确指向机构自己的
- * 才收进来，宁可放过一些真的是机构号码的行，也不能反过来把老人
- * 自己的号码放出去。
- */
-const CONTACT_CONTEXT_HINT =
-  /\b(customer\s*service|contact\s*us|questions?|call\s*(us|now)|billing\s*(department|inquiries|questions)|member\s*services|claims\s*department|support|help\s*line|for\s*(assistance|help)|general\s*inquiries|toll[\s-]?free)\b/i;
-
-/**
- * 这一行的电话号码是不是「机构自己的」。
- *
- * 2026-08-29 发现的 bug：一开始把这条逻辑直接塞进了 isOrgContactLine，
- * 结果连带影响了地址、投递标签这些跟电话无关的判定（hoag 回归测试炸出
- * 「机构地址被误挡」）。所以单独开一个函数，只用在电话过滤这一处。
- *
- * 美国信件常见版式是机构抬头下面紧跟着一个「客户信息栏」，里面印着
- * 收件人自己的电话——这种情况下如果只看「离机构名够不够近」，老人的
- * 电话号码会被当成机构号码放行。所以电话这里必须再加一层内容信号：
- * 这一行本身得有机构名，或者带着「这是联系方式」的标签词，单靠位置
- * 近不够。
- */
-const isOrgOwnPhoneLine = (raw, index, ctx) => {
-  if (ctx.nearPerson(index, 2)) return false;
-  if (ORG_ROUTING_LABEL.test(raw)) return true;
-  if (ctx.domainMatchesOrg(raw)) return true;
-  if (STRONG_ORG_HINTS.test(raw)) return true;
-  return ctx.nearOrg(index, 3) && CONTACT_CONTEXT_HINT.test(raw);
 };
 
 
@@ -412,7 +389,7 @@ const isOrgOwnPhoneLine = (raw, index, ctx) => {
 // 而半漏和全漏在后果上没有区别。
 // ============================================================
 
-const findAddresseeBlock = (lines, pageHeight, ctx) => {
+const findAddresseeBlock = (lines, pageHeight, ctx, senderLineIndex = null) => {
   const blocked = new Set();
 
   lines.forEach((line, index) => {
@@ -425,10 +402,24 @@ const findAddresseeBlock = (lines, pageHeight, ctx) => {
     if (!isAddressish) return;
 
     /*
-     * 挨着机构名、且附近没有人名 -> 这是机构地址，放行。
-     * 页面下半部的「缴费信箱」就是靠这一条救回来的。
+     * P0-C（2026-08-30）：这条本来是「挨着机构名、且附近没有人名 ->
+     * 这是机构地址，放行」，纯靠位置判断——`att_bill` 炸出来的 bug：
+     * 收件人自己的公司名「TECH GROUP & ASSOCIATES. INC」一样会命中
+     * 机构名特征词，光靠"离机构名几行"分不清这地址是谁的。
+     * 换成 `classifyOwnership`——同一套多证据判断（已确认的寄件机构
+     * 锚点 + 是否同一栏 + 投递标签邻近 + 联系方式标签等），只有明确
+     * 判成 SENDER 才放行，判不准（UNKNOWN）按保守方向处理，留在收件人
+     * 区块里。这里还没有 addresseeBlock 本身（正在构建），传 null——
+     * 交给其余证据判断。
      */
-    if (ctx && !ctx.nearPerson(index, 3) && ctx.nearOrg(index, 3)) return;
+    const { role } = classifyOwnership({
+      index,
+      lines,
+      ctx,
+      addresseeBlock: null,
+      senderLineIndex
+    });
+    if (role === 'SENDER') return;
 
     // 位置不再作为硬条件：收件人姓名地址块也可能印在页面下半部
     if (!ctx && line.top > pageHeight * 0.45) return;
@@ -534,7 +525,9 @@ export function buildTranslatablePayload(lines, options = {}) {
     safeLines.reduce((max, l) => Math.max(max, l.bottom || 0), 1);
 
   const ctx = buildContextMap(safeLines, senderLineIndex);
-  const addresseeBlock = findAddresseeBlock(safeLines, pageHeight, ctx);
+  const addresseeBlock = findAddresseeBlock(safeLines, pageHeight, ctx, senderLineIndex);
+  const ownershipOf = (index) =>
+    classifyOwnership({ index, lines: safeLines, ctx, addresseeBlock, senderLineIndex });
 
   const sendable = [];
   const withheld = [];
@@ -549,6 +542,7 @@ export function buildTranslatablePayload(lines, options = {}) {
 
     // --- 关卡 1：现有 PII 检测器 ---
     const orgContact = isOrgContactLine(raw, index, ctx);
+    const ownership = ownershipOf(index);
 
     if (detectPII) {
       try {
@@ -562,15 +556,15 @@ export function buildTranslatablePayload(lines, options = {}) {
          *
          * EMAIL 用 orgContact（位置判断）就够——个人邮箱域名已经在
          * isOrgContactLine 里被 PERSONAL_EMAIL_DOMAIN 短路挡掉了，不
-         * 会因为位置近就误放。PHONE 没有这层短路，必须用更严格的
-         * isOrgOwnPhoneLine（见上面注释）单独判断，否则收件人自己的
-         * 电话只要印在信头附近就会被放行。
+         * 会因为位置近就误放，这块没有出过真实事故，先不动它。
+         * PHONE 用 P0-C 的 classifyOwnership（多证据归属判断），只有
+         * 明确判成 SENDER 才放行——同一套逻辑也用在下面关卡 4 的地址
+         * 判断上，见 piiOwnership.js 的说明。
          */
-        const orgOwnPhone = isOrgOwnPhoneLine(raw, index, ctx);
         const meaningful = found.filter((d) => {
           if (!d) return false;
           if (d.type === 'EMAIL') return !orgContact;
-          if (d.type === 'PHONE') return !orgOwnPhone;
+          if (d.type === 'PHONE') return ownership.role !== 'SENDER';
           return true;
         });
 
@@ -602,8 +596,10 @@ export function buildTranslatablePayload(lines, options = {}) {
     }
 
     // --- 关卡 4：地址 / 信箱 ---
+    // 用 P0-C 的 classifyOwnership 判断这条地址是谁的，不再是单纯的
+    // 「离机构名近就放行」（那条逻辑放行过 att_bill 收件人自己的地址）。
     if (
-      !orgContact &&
+      ownership.role !== 'SENDER' &&
       (STREET_RE.test(raw) || CITY_STATE_ZIP_RE.test(raw) || PO_BOX_RE.test(raw))
     ) {
       reasons.push('包含街道或城市邮编');

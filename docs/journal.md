@@ -29,6 +29,96 @@
 | 10 | 实验性「AI 读全文」只发本地脱敏后的文字，不发图片；金额/日期展示仍只认本地抽取 | 现行 |
 | 11 | 下一阶段优先投入本地隐私检测 + 图片遮盖，暂停扩展 FieldExtractor 的账单业务理解 | 现行 |
 | 12 | 决定 11 细化成 P0–P4 五级优先级，CLAUDE.md 欠账清单同步改写 | 现行（其中 P1 已于同日正式降级，见下方 2026-08-29 定论条目） |
+| 13 | P0-C 候选归属判断拆成 Detection → Ownership → Redaction 三段，不再用「离机构名几行」直接决定放行 | 现行（推翻要件：`classifyOwnership` 的多证据打分被证明不如纯位置判断可靠，或者引入了新的、更简单可靠的归属信号） |
+
+---
+
+## 2026-08-30 · ⚖️ P0-C：候选归属判断拆成 Detection → Ownership → Redaction 三段，`isOrgContactLine` 不再身兼三职
+
+**用户拍板的方案**：不要在 detection 阶段就用「离机构名近」直接过滤/放行
+候选，把问题拆成三段——先高 recall 找出所有候选（不管是谁的），再判断
+候选属于 SENDER/RECIPIENT/THIRD_PARTY/UNKNOWN（多证据打分，不能只靠
+候选跟机构名的行号距离），最后才决定要不要保护（UNKNOWN 一律不静默
+放行，按保守方向处理）。同时要求 benchmark 也拆成三段：Detection
+Recall / Ownership Accuracy / Redaction Precision，方便以后看到漏项
+能明确定位是哪一段错了。
+
+**先修的一个前置 bug（找 senderLineIndex 为什么会跑偏）**：动手写
+ownership 分类器之前，检查"已确认的寄件机构锚点"这条证据能不能用，
+发现 `App.jsx` 传给 `buildTranslatablePayload` 的 `senderLineIndex`
+一直传的是 `extraction.fields.sender.box.id`——但 `.id` 是 OCR 引擎
+给这一行的原始检测顺序号，`contentRedactor.js` 里所有 `nearOrg`/
+`nearPerson` 都是按**数组下标**做位置比较的，两者不是一回事。真实
+`att_bill` fixture 里 96 行有 40 行 `id !== 数组下标`。这个 bug 之前
+完全没被任何测试测出来，因为所有回归测试的 fixture 都是手写的
+`mk()` 辅助函数，`id: L++` 天然等于数组下标，只有真实 OCR 重排过版面
+顺序的数据才会暴露——是这次为了做 ownership 分类器去查证据可靠性时
+顺手挖出来的，不是专门去找的。已修成先按 `id` 在数组里查出真实下标
+再传。
+
+**新模块 `piiOwnership.js`**：`classifyOwnership()` 用多证据打分
+（决定性证据：候选就是收件人区块成员 / 候选本身就是确认过的寄件机构
+锚点；内容证据：投递标签、联系方式引导语、域名匹配、落款签名、收件人
+字段标签——这些不看位置，内容本身就有说服力；弱证据：候选跟已确认
+寄件锚点位置近**且同一栏**（bbox.left 对齐，多栏版面里行号挨着不代表
+内容相关，`att_bill` 的 AT&T logo 跟收件人信息栏就是这么被行号排到
+一起的）、候选跟投递标签邻近（同一个缴费信箱块可能被机构抬头重印两次，
+`senderLineIndex` 只指向第一次）、纯位置的弱兜底），分数过阈值才敢下
+SENDER/RECIPIENT 结论，够不到就是 UNKNOWN——调用方（`decideRedaction`
+用 `shouldRelease()`）只有 SENDER 才放行，UNKNOWN 一律当作保护对象。
+
+**接入 `contentRedactor.js`**：`findAddresseeBlock`（关卡3）判断一条
+地址是不是「机构自己的，可以不算进收件人区块」、关卡4的地址放行判断、
+关卡1的 PHONE 放行判断，全部换成 `classifyOwnership`。`isOrgContactLine`
+不再身兼三职——只留给 EMAIL/网址两处继续用（这两处一直没出过真实
+事故，个人邮箱域名已经被短路挡掉，风险低，没必要跟着搬）。原来专门
+为电话 bug 开的 `isOrgOwnPhoneLine` 已删除（被 `classifyOwnership`
+取代，成了死代码）。
+
+**验证**：
+- 新增 `piiOwnership.test.mjs`（Stage B，Ownership Accuracy）：直接测
+  `classifyOwnership()`，用 att_bill 真实数据复现 bug（先跑通过旧逻辑
+  会失败的断言）、用 hoag 数据做回归防护，8/8 通过。
+- 新增 `contentRedactor.ownershipPipeline.test.mjs`（Stage C，
+  Redaction Precision）：跑完整 `buildTranslatablePayload` 管线，
+  检查最终放行文本里有没有夹带收件人信息，8/8 通过。
+- `contentRedactor.recall.test.mjs`（Stage A，Detection Recall）：
+  att_bill 的 WINDBELL/MESQUITE 从漏检变成正确挡住，29/38 → 30/38。
+- 六层回归全绿（`phone.test.mjs` 因本地缺真实照片 fixture 无法跑，
+  跟这次改动无关）。
+
+**改 ownership 逻辑时顺手发现、又顺手修掉的一个连带 bug**：把 att_bill
+的地址 bug 修对之后，`hoag-invoice-mychart`（旧 fixture）新炸出一条
+回归——付款联/回执区第二次印的「JANE DOE」（双窗口回邮信封常见版式）
+从「被挡住」变成「泄露」。查下去发现它原来根本不是靠正确的逻辑挡住的：
+旧代码里 `PO BOX 660064` 这一行因为一个位置判断的 bug（离机构名超过
+3 行，判定不是机构自己的），错误地成为了收件人区块的锚点，误打误撞地
+把紧挨着的「JANE DOE」也一起扫了进去——**是拿旧 bug 的副作用碰巧护住
+了它**，而不是姓名检测本身认出来的。`looksLikeName()` 的全大写姓名
+形状（`^[A-Z]{2,}\s+[A-Z]{2,}$`）之前要求「必须在页面上方 45%」，这次
+挡住 PO BOX 那个位置 bug 之后，这条纯粹靠运气的保护就消失了，露出
+「姓名如果印在页面下半部（比如回执区），形状检测完全够不着」这个
+本来就存在、只是一直被另一个 bug 意外掩盖的真实缺口。
+
+修法：只放宽全大写这一分支的「必须在页面上方」限制，大小写混排那一支
+（`^[A-Z][a-z]+\s+[A-Z][a-z]+$`，更容易在正文里撞到人名格式的短语）
+保持不变。放宽后跑了一遍完整回归，没有新增误伤——`accuracy.test.mjs`/
+`pipeline.test.mjs`/`contentRedactor.test.mjs` 都不变。因为这条改动
+偏离了 P0-C 本身的范围（属于 Detection 层，不是 Ownership 层），这里
+单独记一笔，没有借着"顺手"的名义在这次改动里悄悄扩大更多 regex——
+只动了这一条，被真实回归测试倒逼出来的最小改动。召回从 30/38 →
+31/38。`BASELINE` 相应上调到 31。
+
+**这次没做、留着的**：
+- `att_bill` 的收件人公司名「TECH GROUP & ASSOCIATES. INC」本身没有
+  被拉进收件人区块（只保护了它的地址，没保护公司名本身）——业务名称
+  跟个人姓名/地址在敏感度上是不是要一视同仁，这次没有定论，暂时按
+  「先解决地址泄露，公司名另议」处理。
+- `SCE_Bill_Letter`/`IRS_cp503`/`hoag-invoice-mychart` 三封信还在用
+  旧 fixture（OCR 粘连导致地址正则匹配不上，跟 ownership 判断无关，
+  是 Detection 层的老问题），没有在这次 P0-C 改动范围内。
+- `DMV_Registration` 的「姓 名首字母」姓名格式缺口仍未修，跟 ownership
+  无关，是 Detection 层的正则形状缺口。
 
 ---
 

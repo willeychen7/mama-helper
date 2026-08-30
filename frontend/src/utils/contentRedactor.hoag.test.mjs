@@ -47,7 +47,17 @@ const HOAG = page([
   'DALLAS, TX 75266-0064'
 ]);
 
-const r = buildTranslatablePayload(HOAG, { imageHeight: 1200 });
+/*
+ * P0-C（2026-08-30）之后，机构自己的地址/信箱能不能放行，很大程度上
+ * 靠 senderLineIndex 这个「已确认的寄件机构锚点」——真实管线里
+ * App.jsx 会把 fieldExtractor.detectSender() 认出来的行号传进来
+ * （Hoag 在 KNOWN_ORGS 词典里，真实场景这一步几乎不会失败）。这里
+ * 显式传第 0 行，跟生产环境的真实接线保持一致，而不是测一个「寄件
+ * 机构完全没被认出来」的退化场景——那种场景下地址会偏保守地被挡住
+ * （翻译少一点，但不会泄露），是刻意选的安全边界，不是这份测试要
+ * 覆盖的东西。
+ */
+const r = buildTranslatablePayload(HOAG, { imageHeight: 1200, senderLineIndex: 0 });
 const withheldIdx = new Set(r.withheld.map((w) => w.index));
 const textAt = (i) => HOAG[i].text;
 const find = (frag) => HOAG.findIndex((l) => l.text.includes(frag));

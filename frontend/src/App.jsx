@@ -3769,14 +3769,31 @@ export default function App() {
                * 把已经认出来的寄件机构行号传进去。
                * 有了这个确定的机构锚点，就能分清
                * 「机构的地址电话」和「老人自己的地址电话」。
+               *
+               * 2026-08-30 修的 bug：这里原来直接传 box.id——但 .id 是
+               * OCR 引擎给这一行的原始检测顺序号，不是它在 ocrResult.lines
+               * 这个（已经按 buildSpatialReadingOrder 重排过版面顺序的）
+               * 数组里的下标。contentRedactor.js 的 nearOrg/nearPerson 全部
+               * 是按数组下标做位置比较的，传错了等于把机构锚点错误地
+               * 指到了随便哪一行——真实账单里 id 和下标对不上的行经常
+               * 占到四成，一直没被发现是因为所有回归测试的 fixture 都是
+               * 手写的、id 顺序天然等于数组下标，只有真实 OCR 重排过的
+               * 数据才会暴露。改成先按 id 找到这一行在数组里的真实下标。
                */
               senderLineIndex:
-                extraction
-                  ?.fields
-                  ?.sender
-                  ?.box
-                  ?.id ??
-                null
+                (() => {
+                  const senderId =
+                    extraction
+                      ?.fields
+                      ?.sender
+                      ?.box
+                      ?.id;
+                  if (senderId === undefined || senderId === null) return null;
+                  const idx = ocrResult.lines.findIndex(
+                    (l) => l && l.id === senderId
+                  );
+                  return idx >= 0 ? idx : null;
+                })()
             }
           );
 
