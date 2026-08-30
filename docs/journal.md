@@ -32,6 +32,49 @@
 
 ---
 
+## 2026-08-30 · 🐛 修复 `isOrgContactLine` 的 PHONE 误放行（先加回归断言，再改代码）
+
+**是被哪个测试炸出来的**：昨天（2026-08-29）新增的
+`piiSyntheticBenchmark.test.mjs` 诊断出的 bug，今天按用户要求「先加
+regression test，再修」走完整流程修掉。
+
+**加的回归断言**：把 PHONE 那组原本只检查「正则认不认得」的断言，
+加上「整行真的被挡住了吗」这条硬断言（之前只 log 不 assert，属于
+「测试自己一直在假装挡住了」的同一类根因）。加完先跑一遍确认失败
+（5 个 PHONE 案例里 4 个新断言失败），确认复现了昨天诊断的 bug，
+再动代码。
+
+**怎么修的**：一开始想直接改 `isOrgContactLine()`，加一条「这一行
+本身要有机构内容特征，不能只靠位置近」。改完 PHONE 断言全过，但
+`contentRedactor.hoag.test.mjs` 从 15/15 炸到 12/15——机构自己的
+地址（`500 Superior Ave`）和缴费信箱所在城市（`DALLAS, TX`）也被
+误挡了。查下去发现 `isOrgContactLine` 同时喂给了三个不同的关卡
+（PHONE/EMAIL 过滤、地址关卡 4、网址关卡 6），电话专用的内容信号
+收紧连累了跟电话完全无关的地址判定。
+
+**最终方案**：`isOrgContactLine` 保持原样不动（继续给地址/网址关卡
+用，位置判断对这两者问题不大——地址有 STREET_RE 这类形状约束兜底），
+新开一个 `isOrgOwnPhoneLine()`，只用在 PHONE 类型的过滤上：要求这
+一行本身带机构名（`STRONG_ORG_HINTS`）、投递标签、域名匹配，或者
+「离机构名近 + 带 `CONTACT_CONTEXT_HINT`（customer service / contact
+us / questions 等）这类联系方式标签词」。EMAIL 不用改，因为个人邮箱
+域名（gmail/yahoo 等）已经在 `isOrgContactLine` 里被
+`PERSONAL_EMAIL_DOMAIN` 短路挡掉，不受位置判断影响。
+
+**验证**：`piiSyntheticBenchmark.test.mjs` PHONE 5/5 全部正确挡住
+（原来 4/5 误放行），`contentRedactor.hoag.test.mjs` 回到 15/15，
+六层回归全绿（`phone.test.mjs` 因本地缺 `phone_ocr.json` 这个未入
+git 的真实照片 fixture 无法跑，跟这次改动无关），
+`contentRedactor.recall.test.mjs` 25/38 不变（该测试目前没有真实
+PHONE 正样本，这条 fix 覆盖不到它，符合预期）。
+
+**没做的**：CONTACT_CONTEXT_HINT 的词表是手写的，没有真实语料验证
+覆盖率——跟 SSN/DOB 一样，PHONE 类目前语料库里零真实正样本，这条
+修复目前只在合成样本上验证过。真实电话号码什么写法、标签词长什么样，
+还是要等真实样本。
+
+---
+
 ## 2026-08-29 · 🐛 合成 benchmark 炸出真实 bug：`isOrgContactLine` 只看位置不看内容，个人电话可能被当机构联系方式放行
 
 **是被哪个测试炸出来的**：新增的 `piiSyntheticBenchmark.test.mjs`

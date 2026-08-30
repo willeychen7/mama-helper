@@ -114,6 +114,14 @@ phoneCases.forEach((c) => {
   const { withheld, structured } = runInContext(c);
   console.log(`  ${structured.phone ? '✅ 正则认出来了' : '❌ 正则没认出来'} | ${withheld ? '✅ 整行被挡' : '❌ 整行没挡'} | ${JSON.stringify(c)}`);
   assert(structured.phone, `PHONE 正则应识别: ${c}`, structured);
+  /*
+   * 2026-08-29 发现的回归点：正则认出来了不代表整行真的被挡——
+   * isOrgContactLine 之前只看「离机构名够不够近」，不看内容本身，
+   * runInContext 的合成信里电话行离信头「ACME UTILITY COMPANY」只有
+   * 2 行，于是被误判成机构联系方式、整行放行。这条断言就是防止它
+   * 再犯。
+   */
+  assert(withheld, `PHONE 整行应被挡（不能因为离信头近就被当成机构号码）: ${c}`, { withheld, structured });
 });
 
 console.log('\n=== EMAIL（个人邮箱，应该被挡住）===');

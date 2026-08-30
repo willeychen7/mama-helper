@@ -347,6 +347,14 @@ const buildContextMap = (lines, senderLineIndex = null) => {
 /**
  * 这一行是不是「机构自己的联系方式」。
  * 是的话可以放行，因为它对老人有用而且不涉及隐私。
+ *
+ * 注意：这个判定同时喂给了地址（关卡 4）、网址/邮箱（关卡 6）两个
+ * 完全不同的问题——「这个地址是机构的还是老人的」跟「这个电话是
+ * 机构的还是老人的」看起来像同一个问题，但地址那边已经有 STREET_RE
+ * 之类的形状约束兜底，纯位置判断（挨着机构名）出问题的概率低；电话
+ * 没有这层形状约束，纯位置判断在电话上出的 bug 见下面 isOrgOwnPhoneLine
+ * 的注释。**不要把电话专用的内容信号收紧塞进这个通用函数**——之前
+ * 这么改过，把机构自己的地址也一起挡了（hoag 回归测试炸出来的）。
  */
 const isOrgContactLine = (raw, index, ctx) => {
   if (ctx.nearPerson(index, 2)) return false;
@@ -357,6 +365,39 @@ const isOrgContactLine = (raw, index, ctx) => {
     ORG_ROUTING_LABEL.test(raw) ||
     ctx.domainMatchesOrg(raw)
   );
+};
+
+/*
+ * 「联系方式」引导语——客服电话旁边常见的标签词。
+ *
+ * 特意不收 "contact number" / "phone number" 这类词——「Contact
+ * number: 562-555-0134」这种写法本身就分不清是「联系我们」还是
+ * 「填你的联系电话」，只有「contact us」这种明确指向机构自己的
+ * 才收进来，宁可放过一些真的是机构号码的行，也不能反过来把老人
+ * 自己的号码放出去。
+ */
+const CONTACT_CONTEXT_HINT =
+  /\b(customer\s*service|contact\s*us|questions?|call\s*(us|now)|billing\s*(department|inquiries|questions)|member\s*services|claims\s*department|support|help\s*line|for\s*(assistance|help)|general\s*inquiries|toll[\s-]?free)\b/i;
+
+/**
+ * 这一行的电话号码是不是「机构自己的」。
+ *
+ * 2026-08-29 发现的 bug：一开始把这条逻辑直接塞进了 isOrgContactLine，
+ * 结果连带影响了地址、投递标签这些跟电话无关的判定（hoag 回归测试炸出
+ * 「机构地址被误挡」）。所以单独开一个函数，只用在电话过滤这一处。
+ *
+ * 美国信件常见版式是机构抬头下面紧跟着一个「客户信息栏」，里面印着
+ * 收件人自己的电话——这种情况下如果只看「离机构名够不够近」，老人的
+ * 电话号码会被当成机构号码放行。所以电话这里必须再加一层内容信号：
+ * 这一行本身得有机构名，或者带着「这是联系方式」的标签词，单靠位置
+ * 近不够。
+ */
+const isOrgOwnPhoneLine = (raw, index, ctx) => {
+  if (ctx.nearPerson(index, 2)) return false;
+  if (ORG_ROUTING_LABEL.test(raw)) return true;
+  if (ctx.domainMatchesOrg(raw)) return true;
+  if (STRONG_ORG_HINTS.test(raw)) return true;
+  return ctx.nearOrg(index, 3) && CONTACT_CONTEXT_HINT.test(raw);
 };
 
 
@@ -518,11 +559,20 @@ export function buildTranslatablePayload(lines, options = {}) {
          * 电话和邮箱要看是谁的。
          * 机构的客服电话、缴费邮箱对老人是有用信息，
          * 不该跟老人自己的号码一起挡掉。
+         *
+         * EMAIL 用 orgContact（位置判断）就够——个人邮箱域名已经在
+         * isOrgContactLine 里被 PERSONAL_EMAIL_DOMAIN 短路挡掉了，不
+         * 会因为位置近就误放。PHONE 没有这层短路，必须用更严格的
+         * isOrgOwnPhoneLine（见上面注释）单独判断，否则收件人自己的
+         * 电话只要印在信头附近就会被放行。
          */
-        const CONTACTISH = ['PHONE', 'EMAIL'];
-        const meaningful = orgContact
-          ? found.filter((d) => d && !CONTACTISH.includes(d.type))
-          : found;
+        const orgOwnPhone = isOrgOwnPhoneLine(raw, index, ctx);
+        const meaningful = found.filter((d) => {
+          if (!d) return false;
+          if (d.type === 'EMAIL') return !orgContact;
+          if (d.type === 'PHONE') return !orgOwnPhone;
+          return true;
+        });
 
         if (meaningful.length) {
           reasons.push('包含检测到的个人信息');
