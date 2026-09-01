@@ -30,6 +30,194 @@
 | 11 | 下一阶段优先投入本地隐私检测 + 图片遮盖，暂停扩展 FieldExtractor 的账单业务理解 | 现行 |
 | 12 | 决定 11 细化成 P0–P4 五级优先级，CLAUDE.md 欠账清单同步改写 | 现行（其中 P1 已于同日正式降级，见下方 2026-08-29 定论条目） |
 | 13 | P0-C 候选归属判断拆成 Detection → Ownership → Redaction 三段，不再用「离机构名几行」直接决定放行 | 现行（推翻要件：`classifyOwnership` 的多证据打分被证明不如纯位置判断可靠，或者引入了新的、更简单可靠的归属信号） |
+| 14 | Phase 1（Detection 层格式补丁）到此为止，不再用「加 regex」扩展，也不再把 DOB/MRN/Medicaid ID/… 一个个变成新 Item。后续走 Phase 2，**第一步是 Phase 2-0**：用同一批真实美国信件 OCR text，A/B 对比「现有 regex + `hasIdLikeToken` + redaction」vs「成熟本地 PII / NER model」，**关键指标是 redaction 之后是否还有敏感信息进入 LLM（final privacy leakage），不是 detection recall**。libphonenumber-js / gazetteer 等**只是候选示例**，降为 **Phase 2-1+（Conditional specialized benchmarks）**：不预设阶段顺序、不预设一定实施，是否评估由 Phase 2-0 的 benchmark evidence 决定 | 现行（推翻要件：见下方 2026-08-31 Phase 1 close-out 条目的三条决策原则——model 在真实信件上没有明显优势就不引入；只在 context-heavy 类型更好就只补长尾；全面更好才考虑 hybrid / model 主导） |
+
+---
+
+## 2026-08-31 · ✅ Phase 1 close-out：Detection 层 8 个 P0 格式缺口，落地 6 个、记录 2 个 known gap
+
+**背景**：先做了 External benchmark（`.bench/`，presidio-research synth_dataset_v2 +
+ai4privacy pii-masking-200k）和一份对抗式 Synthetic benchmark（`.bench/synth-cases.mjs`），
+量出当前 regex-based Detection 的边界。据此逐项修——每项都「先加正例+hard-neg →
+先 benchmark → 只改一个逻辑 → 再 benchmark → 六层回归」，一次只动一个变量。
+
+**关键前提（Phase 1 反复印证的一点）**：`contentRedactor.js` 的 Redaction 层兜底
+`hasIdLikeToken`（任意 6+ 位连续数字串 / 3 段带连字符含 3+ 位数字 → 一律挡）非常激进，
+所以很多「格式缺口」其实**不泄露**，只是被标成泛型 `ID_LIKE`/`ZIP` 而非正确类型。
+下面严格区分「真实泄露修复」和「只是类型一致性改善」。
+
+### 范围说明 —— Phase 1 不是什么
+
+*Phase 1 is a targeted investigation of observed detection failure modes, not a
+complete PII taxonomy or coverage pass.* 读者看到 Item 1–8 容易误以为这是一次
+「每种 PII type 至少配一个 Item」的全覆盖 review，不是：
+
+- **不是完整的 PII taxonomy coverage review。** Item 编号 = 本轮调查中发现的
+  一个**具体 failure mode / finding**，不是「要覆盖的 PII 类型清单」。
+- 只有**经过真实信件 evidence 验证、且适合窄 production fix** 的 finding 才进入
+  production changes（Items 1–6）。
+- **ADDRESS 实际被调查过**（Item 7），但因真实 prevalence / FP 证据不足，保留为
+  known gap，**没有 production change**。
+- **PERSON / NAME 没有在 Phase 1 做完整 coverage** —— `looksLikeName` 的边界见
+  下方「当前 regex 方案最大的剩余问题」一节。**不要把 Phase 1 理解成「姓名已解决」。**
+- 未在 Phase 1 覆盖的 PII 类型（PERSON 长尾、DOB、MRN、Medicaid / medical ID 类、
+  VIN / 牌照、PIN / verification code 等）会在 Phase 2-0 / PII taxonomy audit /
+  model·context benchmark 里**系统评估**，而不是靠继续给 Phase 1 加 regex 补齐。
+
+### 真实 privacy leakage 修复（3 项）—— value 形状让 `hasIdLikeToken` 兜底也失效
+
+| Item | 改动（`App.jsx` `PII_PATTERNS`） | 被什么炸出来 | 为什么是真泄露 |
+|---|---|---|---|
+| 2 | PHONE 括号区号后分隔符可选：`(?:\(\d{3}\)\|\d{3})[\s.-]` → `(?:\(\d{3}\)[\s.-]?\|\d{3}[\s.-])` | External + Synthetic：`(602)272-9781` 完全不检出 | `(`/`)` 让 `hasIdLikeToken` 的两条分段正则都失效，`272-9781` 无 6 位连续数字 → 只有电话的行会泄露。裸 10 位**没有**放宽。 |
+| 3 | SSN 分隔符 `-` → `([-.–])` + 反向引用 `\1` | Synthetic：`123.45.6789` / `123–45–6789`（en-dash U+2013） | 点和 en-dash 都不在 `hasIdLikeToken` 的 `[-\s]` 里，且无 6 位连续数字 → 泄露。反向引用拒绝 `123.45-6789` 混合分隔。 |
+| 4 | 新增 masked-SSN pattern（`type:'SSN'` p99）：`(?<![A-Za-z0-9*])(?:[Xx]{3}-[Xx]{2}\|\*{3}-\*{2})-\d{4}\b` | Synthetic：`***-**-6789` | `*` 不是 `[\dA-Za-z]` → `hasIdLikeToken` 认不出 → 泄露。**完全掩码 `XXX-XX-XXXX`/`***-**-****` 不匹配**（无可识别信息）。`XXX-XX-6789` 部分属类型一致性（本被挡为 ID_LIKE）。context-free：`Claim ref XXX-XX-4589` 也会被当 SSN 遮掉——记录在案的保守取舍（决定 02 方向，掩码非 SSN 编号几乎不用恰好 3-2-4 连字符）。 |
+
+### 只是 detection / type consistency 改善（3 项）—— 行本来就被挡，只是标错类型
+
+| Item | 改动 | 说明 |
+|---|---|---|
+| 1 | DRIVER_LICENSE label 撇号 `Driver'?s?` → `Driver['‘’]?s?` | `Driver's License:`（弯引号，Word 自动替换 / 部分 OCR 产生）整段 label 断裂。但 `D1234567`（8 字符含字母数字，len≥7）本就被 `hasIdLikeToken` 挡住 → 改动只让它带上 `[DRIVER_LICENSE]` 而非 `[ID_LIKE]`。零 FP。 |
+| 5 | 新增 labeled-bare-9 SSN pattern（`type:'SSN'` p94，**低于 ROUTING 95**）：`\b(?:S\.?S\.?N\.?\|SS\s?#\|Soc\.?\s*Sec\.?…\|Social\s*Security…)\s*[:#]?\s*(\d{9})\b` | 用户确认：`SSN: 123456789` 本就被 `hasIdLikeToken`（`\d{6,}`）挡住。改动只是标成正确的 SSN。ROUTING 优先经「两条正则匹配互斥输入 + priority 94<95」双重保证——`SSN / Routing Number: 123456789` 仍判 ROUTING。裸 9 位**无 label** 不匹配（歧义太大）。 |
+| 6 | ADDRESS PO Box：`P\.?O\.?\s*Box` → `P\.?\s?O\.?\s*Box`（加一个 `\s?`） | `P O Box 1234` 本就被 `contentRedactor.js` 的 `PO_BOX_RE`（已允许该空格）在完整 pipeline 里挡住。Item 6 只是让 App.jsx 那条与 contentRedactor 对齐。`Box\s*\d+` 守门条件不变，6 个 FP hard-neg（POS / P&O / "P O Box number" / 缩写）全不触发。 |
+
+### 保留为 known gap（2 项）—— 分析后判定「不值得由规则解决」
+
+- **Item 7 · 无 street suffix 的美国地址**（`123 Homecoming, Irvine, CA 92612` / 犹他网格地址
+  `740 East 3300 South`）。用 `buildTranslatablePayload` 完整 pipeline 测过：**是真实泄露**，
+  收件人块形成时靠 `findAddresseeBlock` 空间逻辑偶然护住，3 个合成场景 2 个泄露。但项目
+  20+ 封真实信件里 **0 个**这种地址，External 里 3 个都是外国街名硬拼美国州/ZIP（模板噪音，
+  不算证据）。窄检测器设计已备（跨行 `^\d{1,6} [A-Z]\w*( [A-Z]\w*){0,3}\n<CITY_STATE_ZIP_RE>$`），
+  但没有真实样本无法验证精度 / OCR 切分假设 → **不改 production**。更干净的落点其实在
+  `findAddresseeBlock`（Redaction 层，本阶段不碰）。
+- **Item 8 · ID label 与 value 非紧邻**（点导线 / "is" 隔断 / 括号插入）。完整 pipeline 测 12 个
+  case：**10 个已被 `hasIdLikeToken` 挡住**（正常长度 ID），**2 个泄露**（`Account Number ....... 5386`
+  4 位、`Member ID .... M5540` 5 字符——短 value 兜底认不出）。真实 fixture **0 个**「同一行
+  label+gap」（真实的都是 label 紧邻 value 或 label 独占一行的跨行/表格情况）。把 `[:\s]*`
+  放宽到跨排版字符 = 直接制造「ID 词附近的无关数字被误判」的 FP 类（`We closed 445566 accounts`
+  → `[ACCOUNT_NUMBER]`）→ **不改**。残留的短-ID 泄露本质是 Redaction 层 `hasIdLikeToken` 长度
+  门槛问题，不是 Detection 正则缺口。
+
+### 其它 Phase 1 期间确认、但没做的（证据不足，不猜）
+
+- **uncommon street suffix**（Pike/Loop/Run/Row/Path/Square/…）：项目语料 + External **0 封真实
+  美国信件**用到；USPS 列表成员资格是弱证据。`Run/Row/Path/Square/Walk/Pass/Point/Loop/Key`
+  是常见英文名词，正文 FP 风险高，已加守卫 hard-neg 锁定「将来别人加了必须不 FP」。
+- **裸 9 位 SSN 无 label**（routing/account 也是 9 位，FP 洪水）、**带 label 空格分隔 SSN**
+  `SSN: 123 45 6789`、**SSN "ending in 6789"/"last 4"**（只泄露 4 位）——都是 out of scope 的
+  已知漏，记录不修。
+
+### benchmark 的价值和局限（供 Phase 2 参考）
+
+- **Synthetic（`.bench/synth-cases.mjs`，我方撰写，319 case）**：能精确到「具体哪个正则子模式
+  失败」（PHONE 70% → 就是括号后无分隔符这一条）、能给每个 fix 建回归护栏、快速迭代。
+  局限：① 我方撰写 → 确认偏误（Pike/Homecoming 是假设不是证据）；② scorer「任意重叠即命中」
+  会高估（地址里的 ZIP、ID value 的一部分）；③ 默认不跑 Redaction 层 pipeline，每个 Item 都得
+  单独补 `buildTranslatablePayload` 测试才看到「是否真泄露」；④ 无真实 OCR 噪声。
+- **External（presidio + ai4privacy）**：独立、非我方撰写，真实的 name/email/phone/SSN 格式分布，
+  证实 EMAIL 到顶、PERSON `First (M.) Last` 100% 而长尾 0%。局限：**都不是美国信件**（合成模板 /
+  多领域模板），地址/电话大量国际格式，姓名部分非拉丁字母，无收件人/寄件人归属 / 空间 / OCR
+  粘连，标签体系不匹配（瑞士 SSN、ai4 的 50+ niche 标签），**测不了 POLICY/MEMBER/MEDICARE
+  recall**（无 gold）。Phase 1 的 6 个改动在 External 上几乎没动数字，正因为这些数据集不含 Phase 1
+  针对的具体格式（弯引号 DL label、`(NPA)NXX` 无分隔、点分隔 SSN、掩码 SSN、`P O Box`）——
+  这本身是 External 局限的证据。
+
+### 当前 regex 方案最大的剩余问题
+
+Detection 正则 + `hasIdLikeToken` 兜底对**结构化 PII 不泄露**已经相当好。剩下的都在正则
+结构性够不到、兜底也不覆盖的地方：**① PERSON 长尾**（`First (M.) Last` 100%，Last-Initial /
+连字符 / 撇号 / 重音 / 3+token / `Last, First` 混排全 0%）+ 唯一真实 FP 类（地名/机构名当人名，
+9 个）；**② 无 suffix 地址**（Item 7）；**③ DOB**（零检测器，裸日期正则会 FP 洪水，需 date+context）；
+**④ 上下文判断**（DOB-vs-到期日、收件人城市-vs-信里提到的城市）；**⑤ 兜底的过度遮盖**
+（`hasIdLikeToken` 挡掉 `We closed 445566 accounts` 这种——安全但粗）。
+
+### 验证
+
+- 六层回归全绿，`contentRedactor.recall.test.mjs` 保持 **35/38**（Items 1–6 未回归）。
+- 两个既有失败**未变**：`phone.test.mjs`（缺本地 `phone_ocr.json` fixture，环境问题，stash 掉改动
+  在 HEAD 上一样失败）、`piiSyntheticBenchmark.test.mjs`（16 通过 / 1 失败，那个失败是测试注释里
+  写明的**故意暴露的** `SSN ending in 6789` 缺口；且 `SSN: XXX-XX-6789` / `Social Security #: 123456789`
+  两条诊断行从「正则没认出来」变成「✅ 认出来了」——正向改善）。
+- Synthetic：PHONE 68%→80%、SSN 25%→80%、DRIVER_LICENSE 43%→70%、ADDRESS 44%→49%（P O Box）；
+  其它类型逐 case 不变；无新增真实 FP（唯一 +1 是 Item 4 记录在案的 context-free 取舍）。
+- External：PHONE 美国格式 70%→78%（+2 真实 span）；其余不变。
+
+### 改动清单
+
+- `frontend/src/App.jsx`：Items 1–6，6 处 `PII_PATTERNS` 改动（1 处 label 字符类、1 处 PHONE 分组、
+  1 处 SSN 分隔符、2 条新增 SSN pattern、1 处 ADDRESS PO Box）。**Items 7、8 无改动。**
+- `frontend/src/utils/piiSyntheticBenchmark.test.mjs`：镜像同步（该文件逐字镜像 App.jsx 的
+  SSN/EMAIL/PHONE 正则，文件头要求同步）——`SSN_RE` 加分隔符、`PHONE_RE` 加分组、新增
+  `SSN_MASKED_RE` + `SSN_LABELED_BARE_RE` 并接进 `detectStructuredPII`。测试通过/失败计数不变。
+- `contentRedactor.js` / `piiOwnership.js` / Ownership / Redaction / App.jsx 的 `detectLocalPII` 主体：
+  **未碰**。
+- `.bench/`（未纳入 git 的本地 benchmark 工具，Phase 2 A/B 要用）：对抗 case 集 + scorer +
+  External runner + 数据集。已清掉一次性调查脚本，留 README 说明。
+
+### Phase 2 方向（2026-09-01 用户重新校准）
+
+**主线目标不是「把所有 PII 都用 regex 覆盖」，是建一个可靠的
+local PII detection → redaction → privacy gate。** Phase 1 已经修完明确格式的
+regex 漏洞，也证明继续堆 regex 会越来越依赖 context/spatial 并开始产 FP。
+
+**Phase 2-0 · PII Model A/B Benchmark（下一步，不改 production）**
+
+用**同一批真实美国信件 OCR text**，对比：
+
+- **A. 现有 pipeline**：existing PII regex + `hasIdLikeToken` + existing redaction
+- **B. 成熟本地 PII / NER model**：只在本地 benchmark 里跑，不要求接 production
+
+至少比较（按类型）：PERSON / ADDRESS / PHONE / EMAIL / SSN / ID 家族
+（Account/Member/Policy/Claim…）/ DOB / medical identifiers 的 recall / precision；
+false positives；**final privacy leakage（redaction 之后还有没有敏感信息进 LLM
+——这才是关键指标，不是 detection recall）**；latency；model size；
+browser/mobile 可运行性；offline feasibility。
+
+**三条决策原则**：
+
+1. model 全面明显优于 regex → 考虑 Model + Regex hybrid，或让 model 成为主
+   detection layer。
+2. model 只在 PERSON / ADDRESS / DOB 等 context-heavy 类型明显更好 → 结构化 PII
+   继续用 deterministic regex，model 补长尾和 context。
+3. model 在我们真实美国信件上没有明显优势 → 不引入，只保留现有 deterministic
+   pipeline。
+
+不因为「理论上模型更先进」就替换。
+
+**Phase 2-1+ · Conditional specialized benchmarks**：只有当 Phase 2-0 的
+benchmark evidence 指出某一类 PII 有可测量的 gap，才评估针对该类的专用组件。
+**不预设阶段编号顺序、不预设一定实施** —— 是否评估、评估哪个，由 Phase 2-0
+的结果决定。具体组件只是候选示例，例如 `libphonenumber-js`（PHONE 解析/
+校验）、美国地名 gazetteer（PERSON 负过滤 / 地址城市判断）、姓氏/名字
+gazetteer（PERSON 长尾）等；每个都跟现有实现做独立 A/B（recall / precision /
+bundle size / 移动端 / 离线），delta 显著才引入。
+
+**PII taxonomy audit（并行，只产出分类 + roadmap，不改 production）**：Phase 1
+发现还有 DOB / MRN / Medicaid ID / Beneficiary ID / Group Number / Claim Number /
+Card number / PIN·verification·activation code / VIN·license plate 等未系统处理。
+不要一个个变成 Item 9/10/11。先审计：① 当前代码实际覆盖什么 ② 哪些类型完全没
+detector ③ 哪些 detector 命中了但仍可能 leak ④ 哪些在真实美国老人信件里高
+prevalence ⑤ P0/P1/P2 ⑥ 适合 regex 的 ⑦ 需要 model 的 ⑧ 需要 context/spatial 的。
+
+**最终架构目标**（逐步演进，不是现在重构）：
+
+```
+OCR
+ ↓
+PII Detection
+ ├─ deterministic regex / structured detectors
+ ├─ PII model
+ └─ context / spatial evidence
+ ↓
+Evidence Fusion / PII Ownership
+ ↓
+Local Redaction
+ ↓
+Privacy Gate
+ ↓
+Redacted text → LLM
+```
+
+见决定 14。
 
 ---
 

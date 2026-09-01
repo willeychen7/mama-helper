@@ -194,7 +194,37 @@ const PII_PATTERNS = [
     mode: 'full',
     priority: 100,
     regex:
-      /\b\d{3}-\d{2}-\d{4}\b/g,
+      /\b\d{3}([-.–])\d{2}\1\d{4}\b/g,
+    placeholder: '[SSN]'
+  },
+
+  {
+    // 部分掩码 SSN：前 5 位打码、后 4 位仍是真数字 —— 真实信件里最
+    // 常见的 SSN 印法（"SSN on file: XXX-XX-6789"）。只认统一掩码字符
+    // （全 X 或全 *）+ 3-2-4 连字符分组 + 末段是 4 位真数字。
+    // 完全掩码（XXX-XX-XXXX / ***-**-****）没有可识别信息，不算 PII，
+    // 不匹配。掩码非 SSN 编号极少用恰好 3-2-4 连字符这种分组，
+    // 这里刻意不做上下文判断（宁可对掩码编号多遮一次，方向偏保守）。
+    type: 'SSN',
+    mode: 'full',
+    priority: 99,
+    regex:
+      /(?<![A-Za-z0-9*])(?:[Xx]{3}-[Xx]{2}|\*{3}-\*{2})-\d{4}\b/g,
+    placeholder: '[SSN]'
+  },
+
+  {
+    // 带 SSN label/context 的裸 9 位数字（"SSN: 123456789"）。裸 9 位
+    // 数字歧义极大（routing / account / ZIP+4 拼接 / 各种编号都是 9 位），
+    // 所以只有紧跟在强 SSN 标签后面才算 —— label 和数字之间只允许空白
+    // 和一个 `:`/`#`。priority 94，**低于 ROUTING(95)**：万一同一串数字
+    // 同时命中 routing detector，ROUTING 的 type/ownership 优先，不被抢走。
+    // 空格分隔的 "SSN: 123 45 6789" 不在本条范围（只认连续 9 位）。
+    type: 'SSN',
+    mode: 'trailing',
+    priority: 94,
+    regex:
+      /\b(?:S\.?S\.?N\.?|SS\s?#|Soc\.?\s*Sec\.?(?:\s*(?:No\.?|Number|#))?|Social\s*Security(?:\s*(?:No\.?|Number|Num|#))?)\s*[:#]?\s*(\d{9})\b/gi,
     placeholder: '[SSN]'
   },
 
@@ -214,7 +244,7 @@ const PII_PATTERNS = [
     priority: 90,
     requireDigit: true,
     regex:
-      /(?:Driver'?s?\s*License(?:\s+Number)?|DL\s*(?:No\.?|#)?|License\s+Number)[:\s]*([A-Z0-9]{5,15})\b/gi,
+      /(?:Driver['‘’]?s?\s*License(?:\s+Number)?|DL\s*(?:No\.?|#)?|License\s+Number)[:\s]*([A-Z0-9]{5,15})\b/gi,
     placeholder:
       '[DRIVER_LICENSE]'
   },
@@ -311,7 +341,7 @@ const PII_PATTERNS = [
     mode: 'full',
     priority: 60,
     regex:
-      /(?:\+?1[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]\d{3}[\s.-]\d{4}\b/g,
+      /(?:\+?1[\s.-]?)?(?:\(\d{3}\)[\s.-]?|\d{3}[\s.-])\d{3}[\s.-]\d{4}\b/g,
     placeholder:
       '[PHONE]'
   },
@@ -321,7 +351,7 @@ const PII_PATTERNS = [
     mode: 'full',
     priority: 50,
     regex:
-      /\b(?:\d{1,6}\s+[A-Za-z0-9.'’#-]+(?:\s+[A-Za-z0-9.'’#-]+){0,4}\s+(?:Street|St|Avenue|Ave|Boulevard|Blvd|Road|Rd|Drive|Dr|Lane|Ln|Court|Ct|Way|Place|Pl|Circle|Cir|Parkway|Pkwy|Highway|Hwy|Terrace|Ter|Trail|Trl)\.?(?:\s*,?\s*(?:Apt|Suite|Ste|Unit|#)\.?\s*[A-Za-z0-9-]+)?|P\.?O\.?\s*Box\s*\d+)\b/gi,
+      /\b(?:\d{1,6}\s+[A-Za-z0-9.'’#-]+(?:\s+[A-Za-z0-9.'’#-]+){0,4}\s+(?:Street|St|Avenue|Ave|Boulevard|Blvd|Road|Rd|Drive|Dr|Lane|Ln|Court|Ct|Way|Place|Pl|Circle|Cir|Parkway|Pkwy|Highway|Hwy|Terrace|Ter|Trail|Trl)\.?(?:\s*,?\s*(?:Apt|Suite|Ste|Unit|#)\.?\s*[A-Za-z0-9-]+)?|P\.?\s?O\.?\s*Box\s*\d+)\b/gi,
     placeholder:
       '[ADDRESS]'
   },

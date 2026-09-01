@@ -91,65 +91,167 @@ frontend/src/utils/
 
 ---
 
-## 下一步该做什么（欠账，按优先级 · 决定 11/12 定的顺序）
+## 高层 Roadmap（下一步该做什么）
 
-产品的安全边界是「**LLM 可以看不懂，但绝不能看到不该看到的东西**」，
-不是「本地代码必须把美国所有账单理解得像 billing specialist」。
-所以现在最该投入的不是继续加账单业务规则，而是先把「敏感信息出本机之前
-真的被挡住了」这条链路做扎实。
+> 这里只放高层结论。每个 Phase 背后的 benchmark 数字、实验过程、推翻依据
+> 都在 [`docs/journal.md`](docs/journal.md)（决定 11–14 + 对应日期条目）。
+> 产品的安全边界是「**LLM 可以看不懂，但绝不能看到不该看到的东西**」——
+> 现在最该投入的是把「敏感信息出本机之前真的被挡住了」这条链路做扎实。
 
-> 这次重新排优先级**不推翻决定 01**：`FieldExtractor` 抽出来的金额/日期
-> 仍然是当前结构化结论的唯一来源，只是不再是最该投入开发精力的地方。
-> *This reprioritization does not revoke Decision 01. Local amount/date
-> extraction remains the source of truth for the current structured
-> result; it is simply no longer the highest-priority development area.*
+### 当前状态（2026-09-01）
 
-**P0 · 本地隐私检测正确性** —— 目标：敏感信息不出本机
+- **Phase 1 — COMPLETE**：对**本轮 benchmark 观察到的具体 detection failure
+  mode** 的定向调查，据此做窄 regex 硬化。production 改动（`App.jsx` 的 6 处
+  `PII_PATTERNS` + 测试镜像同步）**已完成，但尚未 commit，等 review**。
+  **不是完整的 PII taxonomy / coverage pass** —— 范围见下方 Phase 1 条目。
+- **Phase 2-0 — NEXT**：Local PII Model A/B Benchmark，不改 production。
 
-- Ground truth 持续扩充（`contentRedactor.recall.test.mjs`，现在 11 封信、
-  38 条断言，仓库里还有信没标注）；**攒真实照片的优先级依旧高于写新代码**，
-  v1 的 27 个 bug 没有一个是想出来的，全是被一张新图炸出来的。最想要：
-  手机实拍的、医疗 EOB、政府信件（社安局/白卡）。
-- 结构化 PII（SSN / 电话 / Email / 账号 / 保单号 / Member ID / DOB——DOB
-  现在连检测器都没有，语料里也没有真实正样本，是目前最大的空白）
-- 裸姓名、OCR 粘连姓名
-- 地址 / 邮编
-- 图片级遮盖验证（不只测「文字里还剩什么」，要测「图片上真的被涂黑了吗」）
+### 核心决策原则（比 roadmap 本身更重要）
 
-**P1 · OCR 粘连导致的 PII 漏检** —— 已降级，见决定 12（2026-08-29 定论）
+工作方式是 **假设 → benchmark → evidence → decision → production**，
+不是「想到一个技术 → 加进去 → 再想下一个技术」。
 
-`JENNIFERWASHINGTON`/`JOHNBDOE`/`iJANEDOE`/`JAMES&KARENQ.HINDS` 这四个
-案例最初诊断为「不是本项目行重建逻辑的锅，是 PaddleOCR 检测/识别阶段
-自己把这几个词粘成一个框」，据此立了 P1。但那份诊断依据的 fixture
-（`demo_ocr_pp.json`）已经过时——用当前真实 PP-OCRv6 重新生成 15 份
-fixture（1,111 行）之后，这 4 个案例**全部不再复现**，`suspiciousGlue`
-检测器标出的 16 处可疑行经核对**全部是误报**（precision 0%），已有
-数据还显示二次 OCR 对误报内容重跑有误伤倾向。**现有证据不支持继续
-投入 P1**，代码保留（`suspiciousGlue.js`/`secondPassOcr.js`/
-`p1-experiment.html`/`fixture-regen.html`）但不再优化，不是当前开发
-方向。什么时候该重新捡起来：新 benchmark 发现有统计意义的真实粘连
-错误，且能证明二次 OCR 稳定提升准确率、误伤成本可接受。
+- **不因为「理论上存在某种格式」就加 regex。** 没有真实美国信件样本支持的
+  格式缺口，记录为 known gap，不猜。
+- **Real-world evidence > synthetic assumptions。** 我方构造的对抗样例只能
+  定位「哪个子模式失败」，不能当作「这问题真实存在且值得修」的证据。
+- **Benchmark before adding models / dependencies。** 引入任何 model / 库 /
+  数据资产之前，先在真实信件上跑 A/B；delta 不显著就不引入。
+- **最终指标是 redaction 之后的实际 privacy leakage，不是 detector recall。**
+  被 detector 漏掉、但被 Redaction 层兜底挡住的字段，不算泄露。
+- **实验性代码在 benchmark 验证前不进 production。**
+- **不再为了继续 Phase 1 而新增 Item。** DOB / MRN / Medicaid ID / … 走
+  Phase 2-0 + taxonomy audit，不是一个个变成新的 regex patch。
 
-**P2 · 复杂版面下的隐私遮盖**
+> 不推翻决定 01：`FieldExtractor` 抽出来的金额/日期仍然是当前结构化结论的
+> 唯一来源。*This does not revoke Decision 01 — local amount/date extraction
+> remains the source of truth for the structured result.*
 
-任务 3A 在 `water_bill` 这封带图表的信上炸出两个 false positive，根因都是
-「不能只靠 block/下标相邻当依据」——`lines + bbox`（像素位置）才是实际
-遮盖该依据的东西，block 只能当辅助上下文。专门测表格、图表、多栏、跨区域
-文字。
+### 当前实际 pipeline（现状）
 
-**P3 · 红队测试**
+```
+拍照 → 图像预处理 → 本地 OCR
+  → 逐行 PII 判定：deterministic regex detectors + hasIdLikeToken 兜底
+    + classifyOwnership（P0-C，目前只覆盖 ADDRESS/PHONE 的 sender/recipient 归属）
+  → 逐行 redaction（buildTranslatablePayload）→ 只有放行的行进 payload
+  → LLM 理解层（目前是实验开关，见决定 10）
+```
 
-故意找：姓名没遮 · 地址没遮 · 数字型身份信息没遮 · OCR 粘连 · OCR 错读
-导致检测失效 · 遮盖过大（连累有用信息，参考 `Payments Received` 那次）·
-遮盖不足 · 图片已经遮住但 payload 文字里仍有原文。
+### 目标架构（尚未实现，逐步演进，不要写成已完成）
 
-**P4 · LLM 理解层**
+```
+OCR
+ ↓
+PII Detection
+ ├─ deterministic regex / structured detectors   ← 现在只有这个
+ ├─ PII model                                    ← Phase 2 才评估要不要
+ └─ context / spatial evidence                   ← Phase 3
+ ↓
+Evidence Fusion / PII Ownership                   ← Phase 3（现在只有部分 Ownership）
+ ↓
+Local Redaction
+ ↓
+Privacy Gate                                      ← 显式的最终把关，现在是隐式的
+ ↓
+Redacted text → LLM
+```
 
-等 P0–P3 基本可靠之后，把「脱敏后的图片/文字 → LLM → 这是什么信、谁寄的、
-要做什么」当成主要 AI 能力去投入（现在是实验开关，见决定 10）。
+### Phases
 
-**没排进 P0–P4、仍然有效但不是当前重点的旧欠账**：多页信件（老人拍了没
-金额的那一页，现在会说「没找到」而不是「这封信还有别的页」）、中文信件
-（OCR 现在写死 `lang: 'en'`）、让「看不准」说具体（现在只说看不准，应该说
-「金额那行没拍清楚，把下半部分再拍一张」）——这三条不属于隐私链路，
-FieldExtractor 那部分投入随时可以恢复时再捡起来，不是永久取消。
+**Phase 1 · Structured PII detection / narrow regex hardening —— COMPLETE**
+
+> *Phase 1 is a targeted investigation of observed detection failure modes,
+> not a complete PII taxonomy or coverage pass.*
+
+- 解决什么：明确格式的 Detection 漏洞（分隔符变体、掩码写法、label 拼写
+  等），用窄、可解释、低 FP 的 regex 修。
+- **范围 —— 不是什么**：
+  - 不是完整的 PII taxonomy coverage review，也不是「每种 PII type 至少
+    配一个 Item」。**Item 编号 = 本轮调查中发现的一个具体 failure mode /
+    finding**，不是「要覆盖的 PII 类型清单」。
+  - 只有**经过真实信件 evidence 验证、且适合窄 production fix** 的 finding
+    才进 production（Items 1–6）。
+  - **ADDRESS 实际被调查过**（Item 7），但因真实 prevalence / FP 证据不足，
+    保留为 known gap，**没有 production change**。
+  - **PERSON / NAME 没有在 Phase 1 做完整 coverage** —— `looksLikeName` 的
+    边界见 journal「当前 regex 方案最大的剩余问题」。**不要理解成「姓名
+    已解决」。**
+  - 未在 Phase 1 覆盖的 PII 类型（PERSON 长尾、DOB、MRN、Medicaid /
+    medical ID 类、VIN / 牌照、PIN / verification code 等）走 Phase 2-0 /
+    taxonomy audit / model·context benchmark **系统评估**，不是靠继续给
+    Phase 1 加 regex 补齐。
+- 什么决定进入下一阶段：明确格式的缺口已修完；再往下做会开始依赖
+  context/spatial 并产生 FP —— 已被证明（Items 7、8 就地停下，记录为
+  known gap）。
+- 什么推翻当前方案：若某个明确格式缺口既有真实信件证据、又能一行低 FP
+  regex 解决，可以补做（走正常流程，不再新开 Item 编号）。
+
+**Phase 2-0 · Local PII Model A/B Benchmark —— NEXT**
+
+- 解决什么：回答核心问题 —— 现有 regex + `hasIdLikeToken` + redaction，
+  与成熟本地 PII / NER model 相比，谁更适合我们的隐私 redaction？用同一批
+  真实美国信件 OCR text 做 A/B，只在 benchmark 里跑，不接 production。
+- 什么决定进入下一阶段：benchmark 给出每类 PII 的 recall / precision / FP、
+  **redaction 之后的实际 leakage**、latency / model size / 浏览器移动端可
+  运行性 / 离线可行性。据此三选一 —— (a) model 全面明显更好 → 考虑
+  hybrid 或 model 主导 detection；(b) model 只在 PERSON/ADDRESS/DOB 等
+  context-heavy 类型更好 → 结构化 PII 继续用 deterministic regex，model 补
+  长尾和 context；(c) 在真实信件上没有明显优势 → 不引入，保留现有
+  deterministic pipeline。
+- 什么推翻当前方案：benchmark 数据本身就是判据。不因为「模型理论上更先进」
+  就替换。
+
+**Phase 2-1+ · Conditional specialized benchmarks**
+
+- 解决什么：只有当 Phase 2-0 指出某一类 PII 有**可测量的 gap**，才评估
+  针对该类的专用组件（如电话解析库、地名 / 姓名 gazetteer 等）。
+- 什么决定进入下一阶段：每个专用组件独立 A/B（现有实现 vs 该组件：
+  recall / precision / bundle size / 移动端影响 / 离线）。delta 显著才引入。
+- 什么推翻当前方案：Phase 2-0 没指出对应 gap 就不做；A/B 没有明显优势就
+  不引入。**不预设任何具体组件一定要做。**
+
+**Phase 3 · Context / Spatial / PII Ownership / Evidence Fusion**
+
+- 解决什么：regex 和 model 都处理不了的部分 —— 需要版面/位置证据（无
+  suffix 地址的收件人块延伸、姓名的页面位置判断）、需要归属判断
+  （sender / recipient / third-party）、需要把多个 detector 的证据融合成
+  一个结论。已记录的 known gaps 由这一层接住。
+- 什么决定进入下一阶段：Evidence Fusion + Ownership 能在真实信件上稳定地
+  把「检测到的 PII」正确归类并交给 Redaction。
+- 什么推翻当前方案：若纯位置/归属判断被证明比多证据融合更可靠、更简单
+  （呼应决定 13 的推翻要件），退回简单方案。
+
+**Phase 4 · 剩余高风险 PII（按真实样本决定）**
+
+- 解决什么：Phase 1 期间点名但没系统处理的类型（DOB / MRN / Medicaid ID /
+  Beneficiary ID / Group Number / Claim Number / Card number /
+  PIN·verification·activation code / VIN·license plate 等）。先做 taxonomy
+  audit（当前覆盖什么 / 完全没 detector 的 / 命中但仍可能 leak 的 / 真实
+  信件里高 prevalence 的 / P0-P2 / 适合 regex / 需要 model / 需要 context），
+  再按证据决定补哪些、怎么补。
+- 什么决定进入下一阶段：audit 产出分类 + roadmap；高 prevalence + 有真实
+  样本的类型按 Phase 2-0 的三条路处理。
+- 什么推翻当前方案：某类型在真实美国老人信件里 prevalence 很低，或没有
+  真实样本支持安全实现 → 记录为 known gap，不做。
+
+**Phase 5 · Advanced model / NER**
+
+- 解决什么：Phase 2–4 之后仍然存在、且 deterministic + 轻量方案都解决不了
+  的缺口（最可能是 PERSON 长尾里 gazetteer 也覆盖不到的部分）。
+- 什么决定进入下一阶段：benchmark 证明这类缺口真实存在、影响 privacy
+  leakage、且没有更轻的方案。
+- 什么推翻当前方案：benchmark 证明缺口可接受，或轻量方案已经够。目前
+  **不下载 NER 模型、不集成、不增加体积和推理延迟**。
+
+### 仍然有效、但不是当前重点的旧欠账
+
+不属于隐私链路，`FieldExtractor` 那部分投入随时可以恢复时再捡起来，
+不是永久取消：
+
+- 多页信件（拍了没金额的那一页，现在说「没找到」而不是「这封信还有别的页」）
+- 中文信件（OCR 现在写死 `lang: 'en'`）
+- 让「看不准」说具体（现在只说看不准，应该说「金额那行没拍清楚，把下半部分
+  再拍一张」）
+
+OCR 粘连导致的 PII 漏检（曾经的 P1）已按**决定 12** 降级：现有证据不支持
+继续投入，代码保留不优化，重新捡起的条件见决定 12。

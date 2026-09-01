@@ -37,16 +37,23 @@ const assert = (cond, label, detail) => {
 // 镜像 App.jsx 的 PII_PATTERNS（只取 SSN/EMAIL/PHONE，其余类型跟这次
 // 测试无关）——见文件头注释，逐字复制，不是重新设计。
 // ============================================================
-const SSN_RE = /\b\d{3}-\d{2}-\d{4}\b/g;
+const SSN_RE = /\b\d{3}([-.–])\d{2}\1\d{4}\b/g;
+const SSN_MASKED_RE = /(?<![A-Za-z0-9*])(?:[Xx]{3}-[Xx]{2}|\*{3}-\*{2})-\d{4}\b/g;
+const SSN_LABELED_BARE_RE = /\b(?:S\.?S\.?N\.?|SS\s?#|Soc\.?\s*Sec\.?(?:\s*(?:No\.?|Number|#))?|Social\s*Security(?:\s*(?:No\.?|Number|Num|#))?)\s*[:#]?\s*(\d{9})\b/gi;
 const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
-const PHONE_RE = /(?:\+?1[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]\d{3}[\s.-]\d{4}\b/g;
+const PHONE_RE = /(?:\+?1[\s.-]?)?(?:\(\d{3}\)[\s.-]?|\d{3}[\s.-])\d{3}[\s.-]\d{4}\b/g;
 
 const detectStructuredPII = (text) => {
   SSN_RE.lastIndex = 0;
+  SSN_MASKED_RE.lastIndex = 0;
+  SSN_LABELED_BARE_RE.lastIndex = 0;
   EMAIL_RE.lastIndex = 0;
   PHONE_RE.lastIndex = 0;
   return {
-    ssn: SSN_RE.test(text),
+    ssn:
+      SSN_RE.test(text) ||
+      SSN_MASKED_RE.test(text) ||
+      SSN_LABELED_BARE_RE.test(text),
     email: EMAIL_RE.test(text),
     phone: PHONE_RE.test(text)
   };
